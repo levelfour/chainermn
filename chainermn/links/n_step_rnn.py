@@ -27,7 +27,7 @@ class _MultiNodeNStepRNN(chainer.Chain):
         else:
             self.n_cells = _rnn_n_cells[link.rnn]
 
-    def __call__(self, *inputs):
+    def recv_states(self):
         cells = [None for _ in range(self.n_cells)]
 
         if self.rank_in is not None:
@@ -37,8 +37,18 @@ class _MultiNodeNStepRNN(chainer.Chain):
                 device=self.actual_rnn._device_id)
                 for _ in range(self.n_cells)]
 
+        return cells
+
+    def send_states(self, *states):
+        # This utility can only be used for test phase.
+        for state in states:
+            chainermn.functions.send(state, self.communicator, rank=self.rank_out)
+
+    def __call__(self, *inputs):
+        cells = self.recv_states()
         outputs = self.actual_rnn(*(tuple(cells) + inputs))
-        cells = outputs[:-1]
+        cells = outputs[:-1]  # cell statuses except last elements
+        output = outputs[-1]
 
         delegate_variable = None
         if self.rank_out is not None:
@@ -49,8 +59,11 @@ class _MultiNodeNStepRNN(chainer.Chain):
                 if i < self.n_cells - 1:
                     cell = chainermn.functions.pseudo_connect(
                         delegate_variable, cells[i + 1])
+                else:
+                    output = chainermn.functions.pseudo_connect(
+                        delegate_variable, *output)
 
-        return outputs + tuple([delegate_variable])
+        return cells + tuple([output, delegate_variable])
 
 
 def create_multi_node_n_step_rnn(
