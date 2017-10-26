@@ -1,7 +1,9 @@
 import chainer
 from chainer import cuda
 import chainer.utils
+import chainermn.functions
 
+_phi_list = []
 
 class Send(chainer.Function):
     """Send elements to target process."""
@@ -129,8 +131,13 @@ def send(x, communicator, rank, tag=0):
             'rank must be different from communicator rank, '
             'otherwise deadlock occurs')
 
+    global _phi_list
+    if len(_phi_list) > 0:
+        x = chainermn.functions.pseudo_connect(_phi_list[-1], x)
+
     delegate_variable = Send(communicator, peer_rank=rank, peer_tag=tag)(x)
     delegate_variable.name = 'delegate_variable'
+    _phi_list.append(delegate_variable)
     return delegate_variable
 
 
@@ -164,21 +171,31 @@ def recv(communicator, rank, delegate_variable=None, tag=0, device=-1):
     """
     chainer.utils.experimental('chainermn.functions.recv')
 
+    global _phi_list
+
     if rank == communicator.rank:
         raise ValueError(
             'rank must be different from communicator rank, '
             'otherwise deadlock occurs')
 
-    if delegate_variable is None:
-        return Recv(
+    if len(_phi_list) == 0:
+        phi = Recv(
             communicator,
             peer_rank=rank,
             peer_tag=tag,
             device=device)()
+        _phi_list.append(phi)
+        return phi
     else:
+        delegate_variable = _phi_list[-1]
         delegate_variable.name = 'delegate_variable'
-        return Recv(
+        phi = Recv(
             communicator,
             peer_rank=rank,
             peer_tag=tag,
             device=device)(delegate_variable)
+        _phi_list.append(phi)
+        return phi
+
+def clear_delegate_variable_queue():
+    _phi_list.clear()
