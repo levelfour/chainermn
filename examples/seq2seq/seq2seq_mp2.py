@@ -573,7 +573,7 @@ def main():
         target = ' '.join([target_words.get(i, '') for i in target])
         translate_one(source, target)
 
-    if not is_encoder and local_comm.rank == 2:
+    if not is_encoder and local_comm.rank == 0:
         trigger = (1, 'epoch')
         trainer.extend(extensions.LogReport(trigger=trigger),
                        trigger=trigger)
