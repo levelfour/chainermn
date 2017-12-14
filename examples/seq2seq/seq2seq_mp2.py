@@ -81,17 +81,15 @@ def get_subsequence(xs, i, n):
 class Encoder(chainer.Chain):
 
     def __init__(
-            self, comm, n_layers, n_source_vocab, n_target_vocab, n_units):
-
-        rank_in = None if comm.rank == 0 else comm.rank - 1
-        rank_out = None if comm.rank == comm.size - 1 else comm.rank + 1
+            self, comm, rank_out, n_layers, n_source_vocab,
+            n_target_vocab, n_units):
 
         super(Encoder, self).__init__(
             embed_x=L.EmbedID(n_source_vocab, n_units),
             # Corresponding decoder LSTM will be invoked on process 2, 3.
             mn_encoder=chainermn.links.create_multi_node_n_step_rnn(
                 L.NStepLSTM(n_layers, n_units, n_units, 0.1),
-                comm, rank_in=rank_in, rank_out=rank_out
+                comm, rank_in=None, rank_out=rank_out
             ),
         )
         self.comm = comm
@@ -116,13 +114,13 @@ class Encoder(chainer.Chain):
         return delegate_variable
 
     def translate(self, xs, max_length=100):
+        # Encoder test phase can be only done on one process.
+        if self.comm.rank != 0:
+            return None
+
         with chainer.no_backprop_mode():
             with chainer.using_config('train', False):
                 xs = [x[::-1] for x in xs]
-
-                # Split the input sequence and fetch the subsequence.
-                split_size = self.comm.size // 2
-                seq_index = self.comm.rank % split_size
 
                 exs = sequence_embed(self.embed_x, xs)
 
@@ -137,17 +135,15 @@ class Encoder(chainer.Chain):
 class Decoder(chainer.Chain):
 
     def __init__(
-            self, comm, n_layers, n_source_vocab, n_target_vocab, n_units):
-
-        rank_in = None if comm.rank == 0 else comm.rank - 1
-        rank_out = None if comm.rank == comm.size - 1 else comm.rank + 1
+            self, comm, rank_in, n_layers, n_source_vocab,
+            n_target_vocab, n_units):
 
         super(Decoder, self).__init__(
             embed_y=L.EmbedID(n_target_vocab, n_units),
             # Corresponding encoder LSTM will be invoked on process 0, 1.
             mn_decoder=chainermn.links.create_multi_node_n_step_rnn(
                 L.NStepLSTM(n_layers, n_units, n_units, 0.1),
-                comm, rank_in=rank_in, rank_out=rank_out),
+                comm, rank_in=rank_in, rank_out=None),
             W=L.Linear(n_units, n_target_vocab),
         )
         self.comm = comm
@@ -497,12 +493,14 @@ def main():
     n_lstm_layers = 3
     if is_encoder:
         model = Encoder(world_comm,
+                        world_comm.rank + (world_comm.size // 2),
                         n_lstm_layers,
                         len(source_ids),
                         len(target_ids),
                         args.unit)
     else:
         model = Decoder(world_comm,
+                        world_comm.rank - (world_comm.size // 2),
                         n_lstm_layers,
                         len(source_ids),
                         len(target_ids),
@@ -546,7 +544,8 @@ def main():
 
     # Do not use multi node evaluator.
     # (because evaluation is done only on decoder process)
-    trainer.extend(BleuEvaluator(model, test_data, device=dev, comm=world_comm))
+    trainer.extend(
+        BleuEvaluator(model, test_data, device=dev, comm=world_comm))
 
     def translate_one(source, target):
         words = europal.split_sentence(source)

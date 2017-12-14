@@ -42,7 +42,8 @@ class _MultiNodeNStepRNN(chainer.Chain):
     def send_states(self, *states):
         # This utility can only be used for test phase.
         for state in states:
-            chainermn.functions.send(state, self.communicator, rank=self.rank_out)
+            chainermn.functions.send(
+                state, self.communicator, rank=self.rank_out)
 
     def __call__(self, *inputs):
         cells = self.recv_states()
