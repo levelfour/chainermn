@@ -10,6 +10,10 @@ from chainermn.communicators import _memory_utility
 from chainermn import nccl
 
 
+MSGTYPE_OPTIMIZATION = False
+MPITAG_MSGTYPE = 1 << 8
+
+
 def _cnt_to_dsp(cnt):
     """Utility to convert length array to cumulative array."""
     return [0] + numpy.cumsum(cnt)[:-1].tolist()
@@ -29,6 +33,11 @@ class _MessageType(object):
             self.narr = len(obj)
             self.ndims = [x.ndim for x in obj]
             self.shapes = [x.shape for x in obj]
+        elif obj is None:
+            self.is_tuple = None
+            self.narr = None
+            self.ndims = None
+            self.shapes = None
         else:
             raise ValueError(
                 'Message object must be numpy/cupy array or tuple.')
@@ -86,8 +95,7 @@ class CommunicatorBase(object):
         chainer.utils.experimental(
             'chainermn.communicators.CommunicatorBase.send')
 
-        msgtype = _MessageType(obj)
-        self.mpi_comm.send(msgtype, dest=dest, tag=tag)
+        msgtype = self._send_msgtype(obj, dest=dest)
 
         if not msgtype.is_tuple:
             obj = [obj]
@@ -117,7 +125,7 @@ class CommunicatorBase(object):
         chainer.utils.experimental(
             'chainermn.communicators.CommunicatorBase.recv')
 
-        msgtype = self.mpi_comm.recv(source=source, tag=tag)
+        msgtype = self._recv_msgtype(source=source)
 
         if msgtype.is_tuple:
             msg = []
@@ -133,6 +141,46 @@ class CommunicatorBase(object):
             buf = numpy.empty(numpy.prod(shape), dtype=numpy.float32)
             self.mpi_comm.Recv(buf, source=source, tag=tag)
             return buf.reshape(shape)
+
+    def _send_msgtype(self, obj, dest):
+        msgtype = _MessageType(obj)
+
+        if MSGTYPE_OPTIMIZATION:
+            reduced_msgtype = []
+            reduced_msgtype.append(1 if msgtype.is_tuple else 0)
+            reduced_msgtype.append(msgtype.narr)
+            reduced_msgtype += msgtype.ndims
+            for shape in msgtype.shapes:
+                reduced_msgtype += list(shape)
+            reduced_msgtype = numpy.array(reduced_msgtype, dtype=numpy.int32)
+            buf = [reduced_msgtype, mpi4py.MPI.INT]
+            self.mpi_comm.Send(buf, dest=dest, tag=MPITAG_MSGTYPE)
+        else:
+            self.mpi_comm.send(msgtype, dest=dest, tag=MPITAG_MSGTYPE)
+
+        return msgtype
+
+    def _recv_msgtype(self, source):
+        if MSGTYPE_OPTIMIZATION:
+            stat = mpi4py.MPI.Status()
+            self.mpi_comm.Probe(source=source, tag=MPITAG_MSGTYPE, status=stat)
+            buflen = stat.Get_count(mpi4py.MPI.INT)
+            buf = numpy.empty(buflen, dtype=numpy.int32)
+            self.mpi_comm.Recv(
+                [buf, mpi4py.MPI.INT], source=source, tag=MPITAG_MSGTYPE)
+            msgtype = _MessageType(None)
+            msgtype.is_tuple = buf[0] == 1
+            msgtype.narr = buf[1]
+            msgtype.ndims = buf[2:2 + msgtype.narr]
+            msgtype.shapes = []
+            i = 2 + msgtype.narr
+            for n in range(msgtype.narr):
+                shape = tuple(buf[i:i + msgtype.ndims[n]])
+                msgtype.shapes.append(shape)
+                i += msgtype.ndims[n]
+            return msgtype
+        else:
+            return self.mpi_comm.recv(source=source, tag=MPITAG_MSGTYPE)
 
     def alltoall(self, xs):
         """A primitive of inter-process all-to-all function.
