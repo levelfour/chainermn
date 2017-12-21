@@ -7,6 +7,7 @@ import chainermn.functions
 
 _phi_list = []
 
+
 class Send(chainer.Function):
     """Send elements to target process."""
 
@@ -138,13 +139,19 @@ def send(x, communicator, rank, tag=0):
             'otherwise deadlock occurs')
 
     global _phi_list
-    if len(_phi_list) > 0:
-        x = chainermn.functions.pseudo_connect(_phi_list[-1], x)
 
     if isinstance(x, collections.Iterable):
-        delegate_variable = Send(
-            communicator, peer_rank=rank, peer_tag=tag)(*x)
+        if len(_phi_list) > 0:
+            phied_x = chainermn.functions.pseudo_connect(_phi_list[-1], x[-1])
+            delegate_variable = Send(
+                communicator, peer_rank=rank, peer_tag=tag)(
+                    *(x[:-1] + (phied_x, )))
+        else:
+            delegate_variable = Send(
+                communicator, peer_rank=rank, peer_tag=tag)(*x)
     else:
+        if len(_phi_list) > 0:
+            x = chainermn.functions.pseudo_connect(_phi_list[-1], x)
         delegate_variable = Send(
             communicator, peer_rank=rank, peer_tag=tag)(x)
 
@@ -201,7 +208,6 @@ def recv(
             peer_rank=rank,
             peer_tag=tag,
             device=device)()
-        _phi_list.append(phi)
     else:
         delegate_variable = _phi_list[-1]
         delegate_variable.name = 'delegate_variable'
@@ -210,6 +216,11 @@ def recv(
             peer_rank=rank,
             peer_tag=tag,
             device=device)(delegate_variable)
+
+    if isinstance(phi, collections.Iterable):
+        assert len(phi) > 0
+        _phi_list.append(phi[-1])
+    else:
         _phi_list.append(phi)
 
     if force_tuple and not isinstance(phi, tuple):
