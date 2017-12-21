@@ -1,14 +1,17 @@
+from __future__ import with_statement
 import unittest
 
+from chainer import testing
 import mpi4py.MPI
-from nose.plugins.attrib import attr
-import nose.plugins.skip
 import numpy as np
+import pytest
 
 import chainermn
+from chainermn.communicators.flat_communicator import FlatCommunicator
 from chainermn.communicators.naive_communicator import NaiveCommunicator
-from chainermn.datasets import DataSizeError
-from chainermn.datasets import scatter_dataset
+
+from chainermn.datasets.scatter_dataset import chunked_bcast  # NOQA
+from chainermn.datasets.scatter_dataset import INT_MAX  # NOQA
 
 
 class TestDataset(unittest.TestCase):
@@ -54,23 +57,57 @@ class TestDataset(unittest.TestCase):
                 self.check_scatter_dataset(np.arange(n), shuffle, root)
                 self.check_scatter_dataset(np.arange(n * 5 - 1), shuffle, root)
 
-    def scatter_large_data(self, comm_type):
-        comm = self.communicator
-        if comm.rank == 0:
-            data = ["test"] * 2000000000
-            data = chainermn.scatter_dataset(data, comm)
-        else:
-            data = []
-            data = scatter_dataset(data, comm)
+    def test_chunked_bcasts(self):
+        # success
+        for (s, l) in [(10, 1), (1024, 7), (355678, 2378), (234, INT_MAX - 1)]:
+            self.check_chunked_bcast(s, l)
+        # fail
+        for (s, l) in [(200, -1), (23, INT_MAX)]:
+            with pytest.raises(AssertionError):
+                self.check_chunked_bcast(s, l)
 
-    @attr(slow=True)
-    def test_scatter_large_dataset(self):
-        # This test only runs when comm.size >= 2.
-        if self.communicator.size == 1:
-            raise nose.plugins.skip.SkipTest()
+    def check_chunked_bcast(self, data_size, max_buf_len):
+        root = 0
+        obj = np.arange(data_size)
+        src = None
+        if self.communicator.mpi_comm.rank == root:
+            src = obj
 
-        # This test inherently requires large memory (>4GB) and
-        # we skip this test so far.
-        for comm_type in ['naive', 'flat']:
-            self.assertRaises(DataSizeError,
-                              lambda: self.scatter_large_data(comm_type))
+        dst = chunked_bcast(src, self.communicator.mpi_comm,
+                            max_buf_len, root)
+        assert len(dst) == len(obj)
+        for i in range(len(obj)):
+            assert dst[i] == obj[i]
+
+
+def scatter_large_data(communicator):
+    data = []
+    if communicator.rank == 0:
+        data = ["test"] * 2000000000
+    data = chainermn.scatter_dataset(data, communicator)
+    assert len(data) > 0
+
+
+@testing.attr.slow
+def test_scatter_large_dataset_naive():
+    mpi_comm = mpi4py.MPI.COMM_WORLD
+    communicator = NaiveCommunicator(mpi_comm)
+
+    # This test only runs when comm.size >= 2.
+    if communicator.size == 1:
+        pytest.skip("This test is for multinode")
+
+    scatter_large_data(communicator)
+
+
+@testing.attr.gpu
+@testing.attr.slow
+def test_scatter_large_dataset_flat():
+    mpi_comm = mpi4py.MPI.COMM_WORLD
+    communicator = FlatCommunicator(mpi_comm)
+
+    # This test only runs when comm.size >= 2.
+    if communicator.size == 1:
+        pytest.skip("This test is for multinode")
+
+    scatter_large_data(communicator)
