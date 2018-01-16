@@ -4,8 +4,8 @@ import numpy
 class _SynchronizedIterator(object):
 
     def __init__(self, actual_iterator, communicator):
-        if not hasattr(actual_iterator, 'reset'):
-            raise ValueError('iterator must have reset method')
+        if not hasattr(actual_iterator, 'set_random_state'):
+            raise ValueError('actual_iterator must have set_random_state()')
         else:
             super(_SynchronizedIterator, self).__setattr__(
                 'actual_iterator', actual_iterator)
@@ -19,16 +19,8 @@ class _SynchronizedIterator(object):
         seed = self.communicator.mpi_comm.bcast(seed, root=0)
 
         # Random number generator for iterator.
-        self.rng = numpy.random.RandomState(seed)
-        self.reset()
-
-    def reset(self):
-        self.actual_iterator.reset()
-
-        if self.actual_iterator._shuffle:
-            # Use private random number generator for shuffling.
-            self.actual_iterator._order = self.rng.permutation(
-                len(self.dataset))
+        rng = numpy.random.RandomState(seed)
+        self.actual_iterator.set_random_state(rng)
 
     def __getattr__(self, attr_name):
         return getattr(self.actual_iterator, attr_name)

@@ -17,9 +17,52 @@ class TestSynchronizedIterator(unittest.TestCase):
         N = 100
         self.dataset = np.arange(N).astype(np.float32)
 
+    def test_sync(self):
+        iterator = chainermn.iterators.create_synchronized_iterator(
+            chainer.iterators.SerialIterator(
+                self.dataset, batch_size=4, shuffle=True),
+            self.communicator)
+
+        for e in range(3):
+            self.assertEqual(e, iterator.epoch)
+
+            while True:
+                batch = np.array(iterator.next(), dtype=np.float32)
+                if self.communicator.rank == 0:
+                    for rank_from in range(1, self.communicator.size):
+                        _batch = self.communicator.recv(rank_from, tag=0)
+                        chainer.testing.assert_allclose(batch, _batch)
+                else:
+                    self.communicator.send(batch, dest=0, tag=0)
+
+                if iterator.is_new_epoch:
+                    break
+
+    def test_sync_frag(self):
+        iterator = chainermn.iterators.create_synchronized_iterator(
+            chainer.iterators.SerialIterator(
+                self.dataset, batch_size=7, shuffle=True),
+            self.communicator)
+
+        for e in range(3):
+            self.assertEqual(e, iterator.epoch)
+
+            while True:
+                batch = np.array(iterator.next(), dtype=np.float32)
+                if self.communicator.rank == 0:
+                    for rank_from in range(1, self.communicator.size):
+                        _batch = self.communicator.recv(rank_from, tag=0)
+                        chainer.testing.assert_allclose(batch, _batch)
+                else:
+                    self.communicator.send(batch, dest=0, tag=0)
+
+                if iterator.is_new_epoch:
+                    break
+
     def test_sync_no_repeat(self):
         iterator = chainermn.iterators.create_synchronized_iterator(
-            chainer.iterators.SerialIterator(self.dataset, batch_size=4, shuffle=True, repeat=False),
+            chainer.iterators.SerialIterator(
+                self.dataset, batch_size=4, shuffle=True, repeat=False),
             self.communicator)
 
         for e in range(3):
@@ -28,7 +71,7 @@ class TestSynchronizedIterator(unittest.TestCase):
                     batch = np.array(iterator.next(), dtype=np.float32)
                     if self.communicator.rank == 0:
                         for rank_from in range(1, self.communicator.size):
-                            _batch = self.communicator.recv(source=rank_from, tag=0)
+                            _batch = self.communicator.recv(rank_from, tag=0)
                             chainer.testing.assert_allclose(batch, _batch)
                     else:
                         self.communicator.send(batch, dest=0, tag=0)
@@ -37,7 +80,8 @@ class TestSynchronizedIterator(unittest.TestCase):
 
     def test_sync_no_repeat_frag(self):
         iterator = chainermn.iterators.create_synchronized_iterator(
-            chainer.iterators.SerialIterator(self.dataset, batch_size=7, shuffle=True, repeat=False),
+            chainer.iterators.SerialIterator(
+                self.dataset, batch_size=7, shuffle=True, repeat=False),
             self.communicator)
 
         for e in range(3):
@@ -46,7 +90,7 @@ class TestSynchronizedIterator(unittest.TestCase):
                     batch = np.array(iterator.next(), dtype=np.float32)
                     if self.communicator.rank == 0:
                         for rank_from in range(1, self.communicator.size):
-                            _batch = self.communicator.recv(source=rank_from, tag=0)
+                            _batch = self.communicator.recv(rank_from, tag=0)
                             chainer.testing.assert_allclose(batch, _batch)
                     else:
                         self.communicator.send(batch, dest=0, tag=0)
