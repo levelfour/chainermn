@@ -31,6 +31,7 @@ class _SynchronizedIterator(object):
 
 def create_synchronized_iterator(actual_iterator, communicator):
     """Create a synchronized iterator from a Chainer iterator.
+
     This is used when you want batches on multiple processes
     to be synchronized.
 
