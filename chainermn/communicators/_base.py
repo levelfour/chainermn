@@ -146,10 +146,7 @@ class CommunicatorBase(object):
         if msgtype.is_tuple:
             msg = []
             for shape in msgtype.shapes:
-                if shape == ():
-                    buf = numpy.empty(1, dtype=numpy.float32)
-                else:
-                    buf = numpy.empty(numpy.prod(shape), dtype=numpy.float32)
+                buf = numpy.empty(int(numpy.prod(shape), dtype=numpy.float32))
                 self.mpi_comm.Recv(buf, source=source, tag=tag)
                 msg.append(buf.reshape(shape))
             return tuple(msg)
