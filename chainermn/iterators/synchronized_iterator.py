@@ -43,4 +43,7 @@ def create_synchronized_iterator(actual_iterator, communicator):
     Returns:
         The synchronized iterator based on ``actual_iterator``.
     """
+    chainer.utils.experimental(
+        'chainermn.iterators.create_synchronized_iterator')
+
     return _SynchronizedIterator(actual_iterator, communicator)
