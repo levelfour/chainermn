@@ -32,8 +32,15 @@ class _SynchronizedIterator(object):
 def create_synchronized_iterator(actual_iterator, communicator):
     """Create a synchronized iterator from a Chainer iterator.
 
-    This is used when you want batches on multiple processes
-    to be synchronized.
+    This iterator shares the same batches on multiple processes,
+    using the same random number generators to maintain the order of batch
+    shuffling same.
+
+    Here is an example situation.
+    When we train a sequence-to-sequence model, where the encoder and
+    the decoder is located on two different processes, we want to share
+    the same batches on each process, thus inputs for the encoder and
+    output teacher signals for the decoder become consistent.
 
     Args:
         actual_iterator: Chainer iterator

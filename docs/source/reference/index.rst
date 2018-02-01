@@ -40,6 +40,13 @@ Functions
 .. autofunction:: chainermn.functions.pseudo_connect
 .. autofunction:: chainermn.functions.all_to_all
 
+
+Iterators
+~~~~~~~~~
+
+.. autofunction:: chainermn.iterators.create_synchronized_iterator
+
+
 Trainer extensions
 ~~~~~~~~~~~~~~~~~~
 
