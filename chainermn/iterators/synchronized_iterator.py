@@ -42,6 +42,23 @@ def create_synchronized_iterator(actual_iterator, communicator):
     the same batches on each process, thus inputs for the encoder and
     output teacher signals for the decoder become consistent.
 
+    In order to use the synchronized iterator, first create the iterator
+    from Chainer iterator and ChainerMN communicator::
+
+        iterator = chainermn.iterators.create_synchronized_iterator(
+            chainer.iterators.SerialIterator(
+                dataset, batch_size, shuffle=True),
+            communicator)
+
+    Then you can use it as the ordinary Chainer iterator::
+
+        updater = chainer.training.StandardUpdater(iterator, optimizer)
+        trainer = training.Trainer(updater)
+        trainer.run()
+
+    The resulting iterator shares the same shuffling order among processes
+    in the specified communicator.
+
     Args:
         actual_iterator: Chainer iterator
             (e.g., ``chainer.iterators.SerialIterator``).

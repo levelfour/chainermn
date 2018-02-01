@@ -18,6 +18,7 @@ class TestSynchronizedIterator(unittest.TestCase):
         self.dataset = np.arange(N).astype(np.float32)
 
     def test_sync(self):
+        # test the case when datasize is a multiple of batchsize
         iterator = chainermn.iterators.create_synchronized_iterator(
             chainer.iterators.SerialIterator(
                 self.dataset, batch_size=4, shuffle=True),
@@ -39,6 +40,7 @@ class TestSynchronizedIterator(unittest.TestCase):
                     break
 
     def test_sync_frag(self):
+        # test the case when datasize is not a multiple of batchsize
         iterator = chainermn.iterators.create_synchronized_iterator(
             chainer.iterators.SerialIterator(
                 self.dataset, batch_size=7, shuffle=True),
