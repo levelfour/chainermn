@@ -109,13 +109,13 @@ class Gather(chainer.Function):
     def forward(self, inputs):
         xp = cuda.get_array_module(*inputs)
         x, = inputs
-        y = self.comm.gather(x, self.root)
+        ys = self.comm.gather(x, self.root)
 
         if self.comm.rank == self.root:
             if isinstance(self.device, int) and self.device >= 0:
-                y = cuda.to_gpu(y, device=self.device)
+                ys = cuda.to_gpu(ys, device=self.device)
 
-            ys = tuple([y[0] for y in xp.split(y, self.comm.size, axis=0)])
+            ys = tuple([y[0] for y in xp.split(ys, self.comm.size, axis=0)])
             return ys
 
         else:
@@ -178,14 +178,14 @@ class Scatter(chainer.Function):
         xp = cuda.get_array_module(*inputs)
         with cuda.get_device_from_array(*inputs):
             gy, = grad_outputs
-            gys = self.comm.gather(gy, self.root)
+            gxs = self.comm.gather(gy, self.root)
 
             if self.comm.rank == self.root:
                 if isinstance(self.device, int) and self.device >= 0:
-                    gys = cuda.to_gpu(gys, device=self.device)
+                    gxs = cuda.to_gpu(gxs, device=self.device)
 
-                gys = [gy[0] for gy in xp.split(gys, self.comm.size)]
-                return tuple(gys)
+                gxs = [gx[0] for gx in xp.split(gxs, self.comm.size)]
+                return tuple(gxs)
 
             else:
                 # Slave processes need to maintain input/output shapes.
