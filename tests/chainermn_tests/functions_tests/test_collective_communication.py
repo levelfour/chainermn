@@ -25,6 +25,35 @@ class TestCollectiveCommunication(unittest.TestCase):
         if self.communicator.size < 2:
             pytest.skip("This test is for multinode")
 
+    def check_all_gather(self, xs):
+        x = xs[self.communicator.rank]
+        ys = chainermn.functions.all_gather(self.communicator, x, self.device)
+        e = 0
+        for i, y in enumerate(ys):
+            e += chainer.functions.mean_squared_error(y, xs[i])
+        e.backward()
+
+        # Check backward does not fall in deadlock, and error = 0.
+        self.assertEqual(e.data, 0)
+        self.assertEqual(e.grad, 1)
+
+    def test_all_gather_cpu(self):
+        self.setup(False)
+        xs = [chainer.Variable(
+            numpy.random.normal(size=(10, i + 1)).astype(numpy.float32))
+            for i in range(self.communicator.size)]
+        self.check_all_gather(xs)
+
+    @chainer.testing.attr.gpu
+    def test_all_gather_gpu(self):
+        self.setup(True)
+        xs = [chainer.Variable(
+            numpy.random.normal(size=(10, i + 1)).astype(numpy.float32))
+            for i in range(self.communicator.size)]
+        for x in xs:
+            x.to_gpu()
+        self.check_all_gather(xs)
+
     def check_all_to_all(self, xs):
         ys = chainermn.functions.all_to_all(self.communicator, xs, self.device)
 

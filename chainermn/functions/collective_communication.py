@@ -2,6 +2,34 @@ import chainer
 from chainer import cuda
 
 
+class AllGather(chainer.Function):
+    """Collective all-gather communication."""
+
+    def __init__(self, comm, device):
+        chainer.utils.experimental('chainermn.functions.AllGather')
+        self.comm = comm
+        self.device = device
+
+    def forward(self, inputs):
+        x, = inputs
+        ys = self.comm.allgather(x)
+
+        if isinstance(self.device, int) and self.device >= 0:
+            ys = cuda.to_gpu(ys, device=self.device)
+
+        return ys
+
+    def backward(self, inputs, grad_outputs):
+        xp = cuda.get_array_module(*inputs)
+        gxs = self.comm.alltoall(grad_outputs)
+
+        if isinstance(self.device, int) and self.device >= 0:
+            gxs = cuda.to_gpu(gxs, device=self.device)
+
+        gx = xp.stack(gxs).sum(axis=0)
+        return gx,
+
+
 class AllToAll(chainer.Function):
     """Collective all-to-all communication."""
 
@@ -167,6 +195,26 @@ class Scatter(chainer.Function):
                     dummy_var = tuple([xp.zeros(x.shape, dtype=xp.float32)
                                        for x in inputs])
                 return dummy_var
+
+
+def all_gather(comm, x, device=-1):
+    """Differentiable all-gather communication between workers.
+
+    This function invokes gather communications among processes specified
+    by the communicator. Backward will be invoked as well as the ordinary
+    chainer functions, where gradients are reduced to each process.
+
+    Args:
+        comm: ChainerMN communicator.
+        x (chainer.Variables): Variables to send.
+        device (int): Target device specifier.
+
+    Returns:
+        ys (list of chainer.Variables): Received variables.
+    """
+    chainer.utils.experimental('chainermn.functions.all_gather')
+
+    return AllGather(comm, device)(x)
 
 
 def all_to_all(comm, xs, device=-1):

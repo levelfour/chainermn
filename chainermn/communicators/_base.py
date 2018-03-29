@@ -163,6 +163,55 @@ class CommunicatorBase(object):
             self.mpi_comm.Recv(buf, source=source, tag=tag)
             return buf.reshape(shape)
 
+    def allgather(self, x):
+        """A primitive of inter-process all-gather communication.
+
+        This method tries to invoke all-gather communication within the
+        communicator. All processes in the communicator are expected to
+        invoke ``allgather()``. This method relies on mpi4py fast communication
+        optimized for numpy arrays, as well as ``send()`` and ``recv()``.
+
+        Note that this method can only handle the same shapes of data
+        over all processes, and cannot handle tuple data.
+
+        Args:
+            x (numpy.array): Array to be gathered.
+
+        Returns:
+            ys (tuple of numpy.ndarray): Received arrays.
+        """
+        chainer.utils.experimental(
+            'chainermn.communicators.CommunicatorBase.allgather')
+
+        msgtype = _MessageType(x)
+        msgtypes = self.mpi_comm.allgather(msgtype)
+
+        # Type check.
+        for msgtype in msgtypes:
+            if msgtype.is_tuple:
+                raise TypeError('allgather cannot handle tuple data')
+
+            assert len(msgtype.shapes) == 1
+
+        if x.dtype != numpy.float32:
+            raise TypeError('allgather only support dtype == numpy.float32')
+
+        # Collective communication.
+        xp = chainer.cuda.get_array_module(x)
+        shapes = [msgtype.shapes[0] for msgtype in msgtypes]
+        sbuf = _memory_utility.array_to_buffer_object(x)
+        rlens = [numpy.prod(s) for s in shapes]
+        rbuf = numpy.empty(sum(rlens), dtype=numpy.float32)
+        if xp is not numpy:
+            chainer.cuda.Stream.null.synchronize()
+        self.mpi_comm.Allgatherv(
+            sbuf,
+            [rbuf, (rlens, _cnt_to_dsp(rlens)), mpi4py.MPI.FLOAT])
+        ys = [rbuf[i:i + l].reshape(s)
+              for i, l, s in zip(_cnt_to_dsp(rlens), rlens, shapes)]
+
+        return tuple(ys)
+
     def alltoall(self, xs):
         """A primitive of inter-process all-to-all function.
 
@@ -235,6 +284,7 @@ class CommunicatorBase(object):
 
         Args:
             x (numpy.array): Array to be broadcasted.
+            root (int): Rank of root process.
 
         Returns:
             ys (tuple of numpy.ndarray): Received arrays.
@@ -278,6 +328,7 @@ class CommunicatorBase(object):
 
         Args:
             x (numpy.array): Array to be gathered.
+            root (int): Rank of root process.
 
         Returns:
             ys (numpy.ndarray):
@@ -336,6 +387,7 @@ class CommunicatorBase(object):
         Args:
             x (numpy.array):
                 Array to be scattered with shape (#proc, [data-shape]).
+            root (int): Rank of root process.
 
         Returns:
             ys (numpy.ndarray):
