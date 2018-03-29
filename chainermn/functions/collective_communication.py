@@ -84,6 +84,9 @@ class Gather(chainer.Function):
         y = self.comm.gather(x, self.root)
 
         if self.comm.rank == self.root:
+            if isinstance(self.device, int) and self.device >= 0:
+                y = cuda.to_gpu(y, device=self.device)
+
             ys = tuple([y[0] for y in xp.split(y, self.comm.size, axis=0)])
             return ys
 
@@ -137,6 +140,9 @@ class Scatter(chainer.Function):
             y = self.comm.scatter(xs, self.root)
         else:
             y = self.comm.scatter(None, self.root)
+
+        if isinstance(self.device, int) and self.device >= 0:
+            y = cuda.to_gpu(y, device=self.device)
 
         return y,
 
