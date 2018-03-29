@@ -115,12 +115,9 @@ class Gather(chainer.Function):
         ys = self.comm.gather(x, self.root)
 
         if self.comm.rank == self.root:
-            ys = xp.stack(ys)
-
             if isinstance(self.device, int) and self.device >= 0:
-                ys = cuda.to_gpu(ys, device=self.device)
+                ys = tuple([cuda.to_gpu(y, device=self.device) for y in ys])
 
-            ys = tuple([y[0] for y in xp.split(ys, self.comm.size, axis=0)])
             return ys
 
         else:
@@ -130,12 +127,7 @@ class Gather(chainer.Function):
     def backward(self, inputs, grad_outputs):
         xp = cuda.get_array_module(*inputs)
         with cuda.get_device_from_array(*inputs):
-            if self.comm.rank == self.root:
-                gy = xp.stack(grad_outputs)
-            else:
-                gy = None
-
-            gx = self.comm.scatter(gy, self.root)
+            gx = self.comm.scatter(grad_outputs, self.root)
 
             if isinstance(self.device, int) and self.device >= 0:
                 gx = cuda.to_gpu(gx, device=self.device)
@@ -169,8 +161,7 @@ class Scatter(chainer.Function):
         xp = cuda.get_array_module(*inputs)
 
         if self.comm.rank == self.root:
-            xs = xp.stack(inputs)
-            y = self.comm.scatter(xs, self.root)
+            y = self.comm.scatter(inputs, self.root)
         else:
             y = self.comm.scatter(None, self.root)
 
@@ -186,13 +177,10 @@ class Scatter(chainer.Function):
             gxs = self.comm.gather(gy, self.root)
 
             if self.comm.rank == self.root:
-                gxs = xp.stack(gxs)
-
                 if isinstance(self.device, int) and self.device >= 0:
-                    gxs = cuda.to_gpu(gxs, device=self.device)
+                    gxs = tuple([cuda.to_gpu(gx, device=self.device) for gx in gxs])
 
-                gxs = [gx[0] for gx in xp.split(gxs, self.comm.size)]
-                return tuple(gxs)
+                return gxs
 
             else:
                 # Slave processes need to maintain input/output shapes.

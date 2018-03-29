@@ -154,6 +154,23 @@ class TestCollectiveCommunication(unittest.TestCase):
             x.to_gpu()
         self.check_gather(xs)
 
+    def test_gatherv_cpu(self):
+        self.setup(False)
+        xs = [chainer.Variable(
+            numpy.random.normal(size=(i + 1, i + 1)).astype(numpy.float32))
+            for i in range(self.communicator.size)]
+        self.check_gather(xs)
+
+    @chainer.testing.attr.gpu
+    def test_gatherv_gpu(self):
+        self.setup(True)
+        xs = [chainer.Variable(
+            numpy.random.normal(size=(i + 1, i + 1)).astype(numpy.float32))
+            for i in range(self.communicator.size)]
+        for x in xs:
+            x.to_gpu()
+        self.check_gather(xs)
+
     def check_scatter(self, xs):
         # All processes receive the same xs since seed is fixed.
         root = 0
@@ -183,6 +200,23 @@ class TestCollectiveCommunication(unittest.TestCase):
         xs = [chainer.Variable(
             numpy.random.normal(size=(100, 100)).astype(numpy.float32))
             for _ in range(self.communicator.size)]
+        for x in xs:
+            x.to_gpu()
+        self.check_scatter(xs)
+
+    def test_scatterv_cpu(self):
+        self.setup(False)
+        xs = [chainer.Variable(
+            numpy.random.normal(size=(i + 1, i + 1)).astype(numpy.float32))
+            for i in range(self.communicator.size)]
+        self.check_scatter(xs)
+
+    @chainer.testing.attr.gpu
+    def test_scatterv_gpu(self):
+        self.setup(True)
+        xs = [chainer.Variable(
+            numpy.random.normal(size=(i + 1, i + 1)).astype(numpy.float32))
+            for i in range(self.communicator.size)]
         for x in xs:
             x.to_gpu()
         self.check_scatter(xs)
