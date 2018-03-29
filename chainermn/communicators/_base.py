@@ -377,7 +377,7 @@ class CommunicatorBase(object):
         else:
             return None
 
-    def scatter(self, x, root=0):
+    def scatter(self, xs, root=0):
         """A primitive of inter-process scatter communication.
 
         This method tries to invoke scatter communication within the
@@ -385,59 +385,75 @@ class CommunicatorBase(object):
         invoke ``scatter()``. This method relies on mpi4py fast communication
         optimized for numpy arrays, as well as ``send()`` and ``recv()``.
 
-        Note that this method can only handle the same shapes of data
-        over all processes, and cannot handle tuple data.
+        If ``xs`` is tuple, each element is send to different processes.
+        The length of the tuple must be the same as the communicator size.
+        If ``xs`` is ``numpy.ndarrray``, it is splitted with the first
+        axis and sent to different processes. For slave processes, ``xs``
+        is allowed to be any value (will be ignored).
 
         Args:
-            x (numpy.array):
-                Array to be scattered with shape (#proc, [data-shape]).
+            xs (tuple of numpy.array or numpy.array): Arrays to be scattered.
             root (int): Rank of root process.
 
         Returns:
-            ys (numpy.ndarray):
-                Received arrays with shape ([data-shape]).
+            ys (numpy.ndarray): Received arrays.
         """
         chainer.utils.experimental(
             'chainermn.communicators.CommunicatorBase.scatter')
 
+        xp = chainer.cuda.get_array_module(xs)
         is_master = self.mpi_comm.rank == root
 
-        # Type check.
         if is_master:
-            msgtype = _MessageType(x)
-
-            if msgtype.is_tuple:
-                raise TypeError('scatter cannot handle tuple data')
-
-            assert len(msgtype.shapes) == 1
-
-            if msgtype.shapes[0][0] != self.mpi_comm.size:
-                raise ValueError(
-                    'scatter received inconsistent number of inputs '
-                    'with communicator size')
-
-            if x.dtype != numpy.float32:
+            # Type check.
+            if xs.dtype != numpy.float32:
                 raise TypeError('scatter only support dtype == numpy.float32')
 
-            msgtype = _MessageType(x[0])
+            msgtype = _MessageType(xs)
 
-        else:
-            msgtype = None
+            if msgtype.is_tuple:
+                if len(msgtype.shapes) != self.size:
+                    raise ValueError(
+                        'the length of xs must be consistent '
+                        'with communicator size')
 
-        msgtype = self.mpi_comm.bcast(msgtype, root)
-        shape = msgtype.shapes[0]
+                msgtype = tuple([_MessageType(x) for x in xs])
+                shapes = [mt.shapes[0] for mt in msgtype]
+                xs = xp.hstack([x.reshape(-1) for x in xs])
 
-        # Scatter data.
-        if is_master:
-            sbuf = _memory_utility.array_to_buffer_object(x)
-            if chainer.cuda.get_array_module(x) is not numpy:
+            else:
+                assert len(msgtype.shapes) == 1
+
+                if msgtype.shapes[0][0] != self.mpi_comm.size:
+                    raise ValueError(
+                        'scatter received inconsistent number of inputs '
+                        'with communicator size')
+
+                msgtype = tuple([_MessageType(xs[0]) for _ in range(self.size)])
+                shapes = [xs.shape[1:] for _ in range(self.size)]
+
+            msgtype = self.mpi_comm.scatter(msgtype, root)
+            shape = msgtype.shapes[0]
+
+            # Collective communication.
+            slens = [numpy.prod(s) for s in shapes]
+            sbuf = _memory_utility.array_to_buffer_object(xs)[0]
+            rbuf = numpy.empty(numpy.prod(shape), dtype=numpy.float32)
+            if xp is not numpy:
                 chainer.cuda.Stream.null.synchronize()
-        else:
-            sbuf = None
-        rbuf = numpy.empty(numpy.prod(shape), dtype=numpy.float32)
-        self.mpi_comm.Scatter(sbuf, rbuf, root)
 
-        return rbuf.reshape(shape)
+            self.mpi_comm.Scatterv(
+                [sbuf, (slens, _cnt_to_dsp(slens)), mpi4py.MPI.FLOAT],
+                rbuf, root)
+
+            return rbuf.reshape(shape)
+
+        else:  # slave processes
+            msgtypes = self.mpi_comm.scatter(None, root)
+            shape = msgtypes.shapes[0]
+            rbuf = numpy.empty(numpy.prod(shape), dtype=numpy.float32)
+            self.mpi_comm.Scatterv(None, rbuf, root)
+            return rbuf.reshape(shape)
 
     def broadcast_data(self, model):
         raise NotImplementedError()
