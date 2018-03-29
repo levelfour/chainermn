@@ -1,5 +1,6 @@
 import chainer
 from chainer import cuda
+import numpy
 
 
 class AllGather(chainer.Function):
@@ -90,7 +91,7 @@ class Bcast(chainer.Function):
             gxs = self.comm.gather(gx, self.root)
 
             if self.comm.rank == self.root:
-                gxs = xp.stack(gxs)
+                gxs = numpy.stack(gxs)
 
                 if isinstance(self.device, int) and self.device >= 0:
                     gxs = cuda.to_gpu(gxs, device=self.device)
