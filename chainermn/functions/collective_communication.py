@@ -84,11 +84,14 @@ class Bcast(chainer.Function):
         return x,
 
     def backward(self, inputs, grad_outputs):
+        xp = cuda.get_array_module(*inputs)
         with cuda.get_device_from_array(*inputs):
             gx, = grad_outputs
             gxs = self.comm.gather(gx, self.root)
 
             if self.comm.rank == self.root:
+                gxs = xp.stack(gxs)
+
                 if isinstance(self.device, int) and self.device >= 0:
                     gxs = cuda.to_gpu(gxs, device=self.device)
 
@@ -112,6 +115,8 @@ class Gather(chainer.Function):
         ys = self.comm.gather(x, self.root)
 
         if self.comm.rank == self.root:
+            ys = xp.stack(ys)
+
             if isinstance(self.device, int) and self.device >= 0:
                 ys = cuda.to_gpu(ys, device=self.device)
 
@@ -181,6 +186,8 @@ class Scatter(chainer.Function):
             gxs = self.comm.gather(gy, self.root)
 
             if self.comm.rank == self.root:
+                gxs = xp.stack(gxs)
+
                 if isinstance(self.device, int) and self.device >= 0:
                     gxs = cuda.to_gpu(gxs, device=self.device)
 
