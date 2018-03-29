@@ -344,7 +344,6 @@ class CommunicatorBase(object):
             raise TypeError('gather only support dtype == numpy.float32')
 
         if is_master:
-            shape = msgtype.shapes[0]
             for msgtype in msgtypes:
                 if msgtype.is_tuple:
                     raise TypeError('gather cannot handle tuple data')
@@ -426,14 +425,14 @@ class CommunicatorBase(object):
                     raise TypeError(
                         'scatter only support dtype == numpy.float32')
 
-
                 if msgtype.shapes[0][0] != self.mpi_comm.size:
                     raise ValueError(
                         'scatter received inconsistent number of inputs '
                         'with communicator size')
 
                 xp = chainer.cuda.get_array_module(xs)
-                msgtype = tuple([_MessageType(xs[0]) for _ in range(self.size)])
+                msgtype = tuple([_MessageType(xs[0])
+                                 for _ in range(self.size)])
                 shapes = [xs.shape[1:] for _ in range(self.size)]
 
             msgtype = self.mpi_comm.scatter(msgtype, root)
