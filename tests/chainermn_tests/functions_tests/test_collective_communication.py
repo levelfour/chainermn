@@ -12,6 +12,8 @@ import chainermn.functions
 class TestCollectiveCommunication(unittest.TestCase):
 
     def setup(self, gpu):
+        numpy.random.seed(42)
+
         if gpu:
             self.communicator = chainermn.create_communicator('hierarchical')
             self.device = self.communicator.intra_rank
@@ -80,3 +82,78 @@ class TestCollectiveCommunication(unittest.TestCase):
             numpy.random.normal(size=(100, 100)).astype(numpy.float32))
         x.to_gpu()
         self.check_bcast(x)
+
+    def check_gather(self, xs):
+        root = 0
+        # All processes receive the same xs since seed is fixed.
+        x = xs[self.communicator.rank]
+
+        if self.communicator.rank == root:
+            ys = chainermn.functions.gather(
+                self.communicator, x, root, self.device)
+            e = 0
+            for i, y in enumerate(ys):
+                e += chainer.functions.mean_squared_error(y, xs[i])
+            e.backward()
+
+            # Check backward does not fall in deadlock, and error = 0.
+            self.assertEqual(e.data, 0)
+            self.assertEqual(e.grad, 1)
+
+        else:
+            phi = chainermn.functions.gather(
+                self.communicator, x, root, self.device)
+            phi.backward()
+
+            # Check backward does not fall in deadlock.
+            self.assertTrue(x.grad is not None)
+
+    def test_gather_cpu(self):
+        self.setup(False)
+        xs = [chainer.Variable(
+            numpy.random.normal(size=(100, 100)).astype(numpy.float32))
+            for _ in range(self.communicator.size)]
+        self.check_gather(xs)
+
+    @chainer.testing.attr.gpu
+    def test_gather_gpu(self):
+        self.setup(True)
+        xs = [chainer.Variable(
+            numpy.random.normal(size=(100, 100)).astype(numpy.float32))
+            for _ in range(self.communicator.size)]
+        for x in xs:
+            x.to_gpu()
+        self.check_gather(xs)
+
+    def check_scatter(self, xs):
+        # All processes receive the same xs since seed is fixed.
+        root = 0
+
+        y = chainermn.functions.scatter(
+            self.communicator,
+            xs if self.communicator.rank == root else None,
+            root, self.device)
+        x = xs[self.communicator.rank]
+        e = chainer.functions.mean_squared_error(y, x)
+        e.backward()
+
+        # Check backward does not fall in deadlock, and error = 0.
+        self.assertEqual(e.data, 0)
+        self.assertEqual(e.grad, 1)
+
+    def test_scatter_cpu(self):
+        self.setup(False)
+        xs = [chainer.Variable(
+            numpy.random.normal(size=(100, 100)).astype(numpy.float32))
+            for _ in range(self.communicator.size)]
+        self.check_scatter(xs)
+
+    @chainer.testing.attr.gpu
+    def test_scatter_gpu(self):
+        self.setup(True)
+        xs = [chainer.Variable(
+            numpy.random.normal(size=(100, 100)).astype(numpy.float32))
+            for _ in range(self.communicator.size)]
+        for x in xs:
+            x.to_gpu()
+        self.check_scatter(xs)

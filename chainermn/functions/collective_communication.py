@@ -69,6 +69,100 @@ class Bcast(chainer.Function):
                 return None,
 
 
+class Gather(chainer.Function):
+    """Collective gather communication."""
+
+    def __init__(self, comm, root, device):
+        chainer.utils.experimental('chainermn.functions.Gather')
+        self.comm = comm
+        self.root = root
+        self.device = device
+
+    def forward(self, inputs):
+        xp = cuda.get_array_module(*inputs)
+        x, = inputs
+        y = self.comm.gather(x, self.root)
+
+        if self.comm.rank == self.root:
+            ys = tuple([y[0] for y in xp.split(y, self.comm.size, axis=0)])
+            return ys
+
+        else:
+            # Return an empty variable, which serves as "delegate_variable."
+            return xp.array([], dtype=xp.float32),
+
+    def backward(self, inputs, grad_outputs):
+        xp = cuda.get_array_module(*inputs)
+        with cuda.get_device_from_array(*inputs):
+            if self.comm.rank == self.root:
+                gy = xp.stack(grad_outputs)
+            else:
+                gy = None
+
+            gx = self.comm.scatter(gy, self.root)
+
+            if isinstance(self.device, int) and self.device >= 0:
+                gx = cuda.to_gpu(gx, device=self.device)
+
+            return gx,
+
+
+class Scatter(chainer.Function):
+    """Collective scatter communication."""
+
+    def __init__(self, comm, root, device):
+        chainer.utils.experimental('chainermn.functions.Scatter')
+        self.comm = comm
+        self.root = root
+        self.device = device
+
+    def __call__(self, *inputs):
+        xp = cuda.get_array_module(*inputs)
+
+        if inputs == ():
+            # Without dummy variable, this function does not "require_grad",
+            # thus back propagation will not be invoked.
+            dummy_var = chainer.Variable(xp.array([], dtype=xp.float32))
+            dummy_var.name = 'dummy_var'
+            return super(Scatter, self).__call__(dummy_var)
+
+        else:
+            return super(Scatter, self).__call__(*inputs)
+
+    def forward(self, inputs):
+        xp = cuda.get_array_module(*inputs)
+
+        if self.comm.rank == self.root:
+            xs = xp.stack(inputs)
+            y = self.comm.scatter(xs, self.root)
+        else:
+            y = self.comm.scatter(None, self.root)
+
+        return y,
+
+    def backward(self, inputs, grad_outputs):
+        xp = cuda.get_array_module(*inputs)
+        with cuda.get_device_from_array(*inputs):
+            gy, = grad_outputs
+            gys = self.comm.gather(gy, self.root)
+
+            if self.comm.rank == self.root:
+                if isinstance(self.device, int) and self.device >= 0:
+                    gys = cuda.to_gpu(gys, device=self.device)
+
+                gys = [gy[0] for gy in xp.split(gys, self.comm.size)]
+                return tuple(gys)
+
+            else:
+                # Slave processes need to maintain input/output shapes.
+                if inputs == ():
+                    dummy_var = tuple([xp.array([], dtype=xp.float32)])
+                else:
+                    dummy_var = tuple([xp.zeros(x.shape, dtype=xp.float32)
+                                       for x in inputs])
+                return dummy_var
+
+
 def all_to_all(comm, xs, device=-1):
     """Differentiable all-to-all communication between workers.
 
@@ -117,3 +211,50 @@ def bcast(comm, x, root=0, device=-1):
     chainer.utils.experimental('chainermn.functions.bcast')
 
     return Bcast(comm, root, device)(x)
+
+
+def gather(comm, x, root=0, device=-1):
+    """Differentiable gather communication between workers.
+
+    This function invokes gather communications among processes specified
+    by the communicator. Backward will be invoked as well as the ordinary
+    chainer functions, where gradients are scattered from the root process
+    to each slave.
+
+    Args:
+        comm: ChainerMN communicator.
+        x (chainer.Variable): Variable to be sent.
+        device (int): Target device specifier.
+
+    Returns:
+        ys (chainer.Variable):
+            Gathered variables. ``None`` for slaves.
+    """
+    chainer.utils.experimental('chainermn.functions.gather')
+
+    return Gather(comm, root, device)(x)
+
+
+def scatter(comm, xs, root=0, device=-1):
+    """Differentiable scatter communication between workers.
+
+    This function invokes scatter communications among processes specified
+    by the communicator. Backward will be invoked as well as the ordinary
+    chainer functions, where gradients are gathered to the root process.
+
+    Args:
+        comm: ChainerMN communicator.
+        xs (list of chainer.Variable):
+            Variables to be scattered for master process.
+            ``None`` for slave process.
+        device (int): Target device specifier.
+
+    Returns:
+        y (chainer.Variable): Scattered variable.
+    """
+    chainer.utils.experimental('chainermn.functions.scatter')
+
+    if comm.rank == root:
+        return Scatter(comm, root, device)(*xs)
+    else:
+        return Scatter(comm, root, device)()
