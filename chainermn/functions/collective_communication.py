@@ -15,7 +15,7 @@ class AllGather(chainer.Function):
         ys = self.comm.allgather(x)
 
         if isinstance(self.device, int) and self.device >= 0:
-            ys = cuda.to_gpu(ys, device=self.device)
+            ys = tuple([cuda.to_gpu(y, device=self.device) for y in ys])
 
         return ys
 
@@ -24,7 +24,7 @@ class AllGather(chainer.Function):
         gxs = self.comm.alltoall(grad_outputs)
 
         if isinstance(self.device, int) and self.device >= 0:
-            gxs = cuda.to_gpu(gxs, device=self.device)
+            gxs = tuple([cuda.to_gpu(gx, device=self.device) for gx in gxs])
 
         gx = xp.stack(gxs).sum(axis=0)
         return gx,
