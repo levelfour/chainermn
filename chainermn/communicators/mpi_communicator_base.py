@@ -11,6 +11,13 @@ from chainermn.communicators import _memory_utility
 from chainermn.communicators import communicator_base
 
 
+def _check_dtype(caller, array):
+    """Type checker for MPI communicator."""
+    if array.dtype != numpy.float32:
+        raise ValueError(
+            '{} only support dtype == numpy.float32'.format(caller))
+
+
 def _cnt_to_dsp(cnt):
     """Utility to convert length array to cumulative array."""
     return [0] + numpy.cumsum(cnt)[:-1].tolist()
@@ -91,9 +98,7 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
 
         # Type check.
         for x in xs:
-            if x.dtype != numpy.float32:
-                raise ValueError(
-                    'alltoall only support dtype == numpy.float32')
+            _check_dtype('alltoall', x)
 
         # Mediate #axes of arrays.
         sndims = numpy.array([x.ndim for x in xs], dtype=numpy.int32)
@@ -159,8 +164,7 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
             data = [data]
 
         for x in data:
-            if x.dtype != numpy.float32:
-                raise ValueError('send only support dtype == numpy.float32')
+            _check_dtype('send', x)
 
         for array in data:
             if chainer.cuda.get_array_module(array) is not numpy:
@@ -230,8 +234,7 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
             if msgtype.is_tuple:
                 raise TypeError('Tuple data cannot be broadcasted')
 
-            elif x.dtype != numpy.float32:
-                raise TypeError('bcast only supports dtype == numpy.float32')
+            _check_dtype('bcast', x)
 
             msgtype = self.mpi_comm.bcast(msgtype, root)
             shape = msgtype.shapes[0]
@@ -270,9 +273,7 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         msgtype = _MessageType(x)
         msgtypes = self.mpi_comm.gather(msgtype, root)
 
-        # Type check.
-        if x.dtype != numpy.float32:
-            raise TypeError('gather only support dtype == numpy.float32')
+        _check_dtype('gather', x)
 
         if is_master:
             for msgtype in msgtypes:
@@ -362,8 +363,8 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         msgtype = _MessageType(x)
         if msgtype.is_tuple:
             raise TypeError('allreduce cannot handle tuple data')
-        if x.dtype != numpy.float32:
-            raise ValueError('gather only support dtype == numpy.float32')
+
+        _check_dtype('allreduce', x)
 
         # TODO(kuenishi): do we check all messages have same shape and dims?
 
@@ -421,9 +422,7 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
             msgtype = _MessageType(xs)
 
             if msgtype.is_tuple:
-                if xs[0].dtype != numpy.float32:
-                    raise TypeError(
-                        'scatter only support dtype == numpy.float32')
+                _check_dtype('scatter', xs[0])
 
                 if len(msgtype.shapes) != self.size:
                     raise ValueError(
@@ -439,9 +438,7 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
             else:
                 assert len(msgtype.shapes) == 1
 
-                if xs.dtype != numpy.float32:
-                    raise TypeError(
-                        'scatter only support dtype == numpy.float32')
+                _check_dtype('scatter', xs)
 
                 if msgtype.shapes[0][0] != self.mpi_comm.size:
                     raise ValueError(
