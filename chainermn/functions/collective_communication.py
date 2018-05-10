@@ -70,14 +70,14 @@ class Bcast(chainer.Function):
             x, = inputs
         else:
             x = None
-        return self.comm.bcast(x, self.root)
+        return self.comm.bcast(x, self.root),
 
     def backward(self, inputs, grad_outputs):
         gx, = grad_outputs
         gxs = self.comm.gather(gx, self.root)
-        xp = cuda.get_array_module(gxs)
 
         if self.comm.rank == self.root:
+            xp = cuda.get_array_module(*gxs)
             gxs = xp.stack(gxs)
             return gxs.sum(axis=0),
         else:
@@ -105,7 +105,7 @@ class Gather(chainer.Function):
             return xp.array([], dtype=xp.float32),
 
     def backward(self, inputs, grad_outputs):
-        return self.comm.scatter(grad_outputs, self.root)
+        return self.comm.scatter(grad_outputs, self.root),
 
 
 class Scatter(chainer.Function):

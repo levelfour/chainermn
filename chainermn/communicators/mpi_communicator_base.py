@@ -163,7 +163,8 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         else:
             self.mpi_comm.Alltoallv(
                 [sbuf, (slens, _cnt_to_dsp(slens)), mpi4py.MPI.FLOAT],
-                [rbuf, (rlens, _cnt_to_dsp(rlens)), mpi4py.MPI.FLOAT])
+                [_memory_utility.get_device_memory_pointer(rbuf),
+                 (rlens, _cnt_to_dsp(rlens)), mpi4py.MPI.FLOAT])
 
         ys = [rbuf[i:i + l].reshape(s)
               for i, l, s in zip(_cnt_to_dsp(rlens), rlens, shapes)]
@@ -539,13 +540,13 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
             # Collective communication.
             slens = [numpy.prod(s) for s in shapes]
             sbuf = _memory_utility.array_to_buffer_object(xs)[0]
-            rbuf = numpy.empty(numpy.prod(shape), dtype=numpy.float32)
+            rbuf = xp.empty([numpy.prod(shape)], dtype=numpy.float32)
             if xp is not numpy:
                 chainer.cuda.Stream.null.synchronize()
 
             self.mpi_comm.Scatterv(
                 [sbuf, (slens, _cnt_to_dsp(slens)), mpi4py.MPI.FLOAT],
-                rbuf, root)
+                 _memory_utility.get_device_memory_pointer(rbuf), root)
 
             return rbuf.reshape(shape)
 
