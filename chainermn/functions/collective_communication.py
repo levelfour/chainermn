@@ -1,6 +1,5 @@
 import chainer
 from chainer import cuda
-import numpy
 
 
 class AllGather(chainer.Function):
@@ -39,7 +38,6 @@ class AllToAll(chainer.Function):
     def backward(self, inputs, grad_outputs):
         assert self.comm.size == len(grad_outputs)
 
-        xp = cuda.get_array_module(*inputs)
         gys = tuple([gy for gy in grad_outputs])
         return self.comm.alltoall(gys)
 

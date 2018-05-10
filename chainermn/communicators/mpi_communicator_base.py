@@ -129,7 +129,7 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         # Type check.
         for x in xs:
             _check_dtype('alltoall', x)
-        msgtype = _MessageType(xs)
+        _MessageType(xs)
 
         # Mediate #axes of arrays.
         sndims = numpy.array([x.ndim for x in xs], dtype=numpy.int32)
@@ -546,7 +546,7 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
 
             self.mpi_comm.Scatterv(
                 [sbuf, (slens, _cnt_to_dsp(slens)), mpi4py.MPI.FLOAT],
-                 _memory_utility.get_device_memory_pointer(rbuf), root)
+                _memory_utility.get_device_memory_pointer(rbuf), root)
 
             return rbuf.reshape(shape)
 
