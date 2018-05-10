@@ -11,6 +11,14 @@ from chainermn.communicators import _memory_utility
 from chainermn.communicators import communicator_base
 
 
+def _is_numpy_array(array):
+    return isinstance(array, numpy.ndarray)
+
+
+def _is_cupy_array(array):
+    return chainer.cuda.get_array_module(array) is not numpy
+
+
 def _check_dtype(caller, array):
     """Type checker for MPI communicator."""
     if array.dtype != numpy.float32:
@@ -26,20 +34,36 @@ def _cnt_to_dsp(cnt):
 class _MessageType(object):
 
     def __init__(self, obj):
-        if isinstance(obj, numpy.ndarray) \
-                or chainer.cuda.get_array_module(obj) is not numpy:
+        if _is_numpy_array(obj) or _is_cupy_array(obj):
+            self.is_host = _is_numpy_array(obj)
             self.is_tuple = False
             self.narr = 1
             self.ndims = [obj.ndim]
             self.shapes = [obj.shape]
+
         elif isinstance(obj, collections.Iterable):
+            if all(map(_is_numpy_array, obj)):
+                self.is_host = True
+            elif all(map(_is_cupy_array, obj)):
+                self.is_host = False
+            else:
+                raise ValueError(
+                    'All message objects must be either numpy or cupy arrays.')
             self.is_tuple = True
             self.narr = len(obj)
             self.ndims = [x.ndim for x in obj]
             self.shapes = [x.shape for x in obj]
+
         else:
             raise ValueError(
                 'Message object must be numpy/cupy array or tuple.')
+
+    def get_array_module(self):
+        if self.is_host:
+            return numpy
+        else:
+            import cupy
+            return cupy
 
 
 class MpiCommunicatorBase(communicator_base.CommunicatorBase):
@@ -121,13 +145,19 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         xp = chainer.cuda.get_array_module(xs[0])
         sbuf = xp.hstack([x.reshape(-1) for x in xs])
         rlens = [numpy.prod(s) for s in shapes]
-        rbuf = numpy.empty(sum(rlens), dtype=numpy.float32)
+        rbuf = xp.empty([sum(rlens)], dtype=numpy.float32)
         if xp is not numpy:
             sbuf = _memory_utility.array_to_buffer_object(sbuf)[0]
             chainer.cuda.Stream.null.synchronize()
-        self.mpi_comm.Alltoallv(
-            [sbuf, (slens, _cnt_to_dsp(slens)), mpi4py.MPI.FLOAT],
-            [rbuf, (rlens, _cnt_to_dsp(rlens)), mpi4py.MPI.FLOAT])
+            self.mpi_comm.Alltoallv(
+                [sbuf, (slens, _cnt_to_dsp(slens)), mpi4py.MPI.FLOAT],
+                [_memory_utility.get_device_memory_pointer(rbuf),
+                 (rlens, _cnt_to_dsp(rlens)), mpi4py.MPI.FLOAT])
+        else:
+            self.mpi_comm.Alltoallv(
+                [sbuf, (slens, _cnt_to_dsp(slens)), mpi4py.MPI.FLOAT],
+                [rbuf, (rlens, _cnt_to_dsp(rlens)), mpi4py.MPI.FLOAT])
+
         ys = [rbuf[i:i + l].reshape(s)
               for i, l, s in zip(_cnt_to_dsp(rlens), rlens, shapes)]
 
@@ -183,6 +213,11 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         numpy arrays, which discards any information attached to
         chainer.Variable objects. Please be sure.
 
+        If the corresponding ``send()`` is invoked with cupy array,
+        this method tries to allocate cupy array to receive data.
+        Please be aware that the CUDA current device is intended one.
+        (``https://docs-cupy.chainer.org/en/stable/tutorial/basic.html#current-device``)
+
         Args:
             source (int): Target process specifier.
             tag (int): Message ID (MPI feature).
@@ -193,20 +228,25 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
             'chainermn.communicators.MpiCommunicatorBase.recv')
 
         msgtype = self.mpi_comm.recv(source=source, tag=tag)
+        xp = msgtype.get_array_module()
 
         if msgtype.is_tuple:
             msg = []
             for shape in msgtype.shapes:
-                buf = numpy.empty(numpy.prod(shape), dtype=numpy.float32)
-                self.mpi_comm.Recv(buf, source=source, tag=tag)
+                buf = xp.empty([numpy.prod(shape)], dtype=numpy.float32)
+                self.mpi_comm.Recv(
+                    _memory_utility.get_device_memory_pointer(buf),
+                    source=source, tag=tag)
                 msg.append(buf.reshape(shape))
             return tuple(msg)
 
         else:
             assert len(msgtype.shapes) == 1
             shape = msgtype.shapes[0]
-            buf = numpy.empty(numpy.prod(shape), dtype=numpy.float32)
-            self.mpi_comm.Recv(buf, source=source, tag=tag)
+            buf = xp.empty([numpy.prod(shape)], dtype=numpy.float32)
+            self.mpi_comm.Recv(
+                _memory_utility.get_device_memory_pointer(buf),
+                source=source, tag=tag)
             return buf.reshape(shape)
 
     def bcast(self, x, root=0):
@@ -244,9 +284,12 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         else:
             msgtype = None
             msgtype = self.mpi_comm.bcast(msgtype, root)
+            xp = msgtype.get_array_module()
             shape = msgtype.shapes[0]
-            buf = numpy.empty(numpy.prod(shape), dtype=numpy.float32)
-            self.mpi_comm.Bcast(buf, root)
+            buf = xp.empty([numpy.prod(shape)], dtype=numpy.float32)
+            self.mpi_comm.Bcast(
+                _memory_utility.get_device_memory_pointer(buf),
+                root)
             return buf.reshape(shape)
 
     def gather(self, x, root=0):
@@ -282,17 +325,19 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
 
                 assert len(msgtype.shapes) == 1
 
+            xp = chainer.cuda.get_array_module(x)
             sbuf = _memory_utility.array_to_buffer_object(x)
             shapes = [mty.shapes[0] for mty in msgtypes]
             rlens = [numpy.prod(s) for s in shapes]
-            rbuf = numpy.empty(sum(rlens), dtype=numpy.float32)
+            rbuf = xp.empty([sum(rlens)], dtype=numpy.float32)
 
-            if chainer.cuda.get_array_module(x) is not numpy:
+            if xp is not numpy:
                 chainer.cuda.Stream.null.synchronize()
 
             self.mpi_comm.Gatherv(
                 sbuf,
-                [rbuf, (rlens, _cnt_to_dsp(rlens)), mpi4py.MPI.FLOAT],
+                [_memory_utility.get_device_memory_pointer(rbuf),
+                 (rlens, _cnt_to_dsp(rlens)), mpi4py.MPI.FLOAT],
                 root)
 
             ys = [rbuf[i:i + l].reshape(s)
@@ -306,7 +351,7 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
 
     def allgather(self, x):
         chainer.utils.experimental(
-            'chainermn.communicators.MPICommunicatorBase.allgather')
+            'chainermn.communicators.MpiCommunicatorBase.allgather')
 
         msgtype = _MessageType(x)
         msgtypes = self.mpi_comm.allgather(msgtype)
@@ -318,20 +363,25 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
 
             assert len(msgtype.shapes) == 1
 
-        if x.dtype != numpy.float32:
-            raise TypeError('allgather only support dtype == numpy.float32')
+        _check_dtype('allgather', x)
 
         # Collective communication.
         xp = chainer.cuda.get_array_module(x)
         shapes = [msgtype.shapes[0] for msgtype in msgtypes]
         sbuf = _memory_utility.array_to_buffer_object(x)
         rlens = [numpy.prod(s) for s in shapes]
-        rbuf = numpy.empty(sum(rlens), dtype=numpy.float32)
+        rbuf = xp.empty([sum(rlens)], dtype=numpy.float32)
         if xp is not numpy:
             chainer.cuda.Stream.null.synchronize()
-        self.mpi_comm.Allgatherv(
-            sbuf,
-            [rbuf, (rlens, _cnt_to_dsp(rlens)), mpi4py.MPI.FLOAT])
+            self.mpi_comm.Allgatherv(
+                sbuf,
+                [_memory_utility.get_device_memory_pointer(rbuf),
+                 (rlens, _cnt_to_dsp(rlens)), mpi4py.MPI.FLOAT])
+        else:
+            self.mpi_comm.Allgatherv(
+                sbuf,
+                [_memory_utility.get_device_memory_pointer(rbuf),
+                 (rlens, _cnt_to_dsp(rlens)), mpi4py.MPI.FLOAT])
         ys = [rbuf[i:i + l].reshape(s)
               for i, l, s in zip(_cnt_to_dsp(rlens), rlens, shapes)]
 
@@ -366,13 +416,17 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
 
         _check_dtype('allreduce', x)
 
+        xp = chainer.cuda.get_array_module(x)
+
         # TODO(kuenishi): do we check all messages have same shape and dims?
 
         # Source buffer
         sbuf = _memory_utility.array_to_buffer_object(x)
         # Destination buffer
-        dbuf = numpy.empty(msgtype.shapes[0], dtype=numpy.float32)
-        self.mpi_comm.Allreduce(sbuf, dbuf)
+        dbuf = xp.empty([numpy.prod(msgtype.shapes[0])], dtype=numpy.float32)
+        self.mpi_comm.Allreduce(
+            sbuf,
+            _memory_utility.get_device_memory_pointer(dbuf))
 
         return dbuf.reshape(msgtype.shapes[0])
 
@@ -468,9 +522,13 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
 
         else:  # slave processes
             msgtypes = self.mpi_comm.scatter(None, root)
+            xp = msgtypes.get_array_module()
             shape = msgtypes.shapes[0]
-            rbuf = numpy.empty(numpy.prod(shape), dtype=numpy.float32)
-            self.mpi_comm.Scatterv(None, rbuf, root)
+            rbuf = xp.empty([numpy.prod(shape)], dtype=numpy.float32)
+            self.mpi_comm.Scatterv(
+                None,
+                _memory_utility.get_device_memory_pointer(rbuf),
+                root)
             return rbuf.reshape(shape)
 
     def allreduce_obj(self, obj):
