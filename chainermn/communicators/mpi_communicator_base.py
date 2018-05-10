@@ -105,6 +105,12 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         invoke ``alltoall()``. This method relies on mpi4py fast communication
         optimized for numpy arrays, as well as ``send()`` and ``recv()``.
 
+        If ``xs`` is numpy array, the received data will also be allocated
+        as numpy array. If ``xs`` is cupy array, the received data will also
+        be cupy array. In the latter case, please be aware that
+        the CUDA current device is intended one.
+        (``https://docs-cupy.chainer.org/en/stable/tutorial/basic.html#current-device``)
+
         Args:
             xs (tuple of numpy.ndarray)
 
@@ -123,6 +129,7 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         # Type check.
         for x in xs:
             _check_dtype('alltoall', x)
+        msgtype = _MessageType(xs)
 
         # Mediate #axes of arrays.
         sndims = numpy.array([x.ndim for x in xs], dtype=numpy.int32)
@@ -257,6 +264,11 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         invoke ``broadcast()``. This method relies on mpi4py fast communication
         optimized for numpy arrays, as well as ``send()`` and ``recv()``.
 
+        If ``bcast()`` is invoked with cupy array in the root process,
+        this method tries to allocate cupy array to receive data.
+        Please be aware that the CUDA current device is intended one.
+        (``https://docs-cupy.chainer.org/en/stable/tutorial/basic.html#current-device``)
+
         Args:
             x (numpy.array): Array to be broadcasted.
             root (int): Rank of root process.
@@ -299,6 +311,12 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         communicator. All processes in the communicator are expected to
         invoke ``gather()``. This method relies on mpi4py fast communication
         optimized for numpy arrays, as well as ``send()`` and ``recv()``.
+
+        If ``x`` is numpy array, the received data will also be allocated
+        as numpy array. If ``x`` is cupy array, the received data will also
+        be cupy array. In the latter case, please be aware that
+        the CUDA current device is intended one.
+        (``https://docs-cupy.chainer.org/en/stable/tutorial/basic.html#current-device``)
 
         Args:
             x (numpy.array): Array to be gathered.
@@ -398,6 +416,12 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         Note that this method can only handle the same shapes of data
         over all processes, and cannot handle tuple data.
 
+        If ``x`` is numpy array, the received data will also be allocated
+        as numpy array. If ``x`` is cupy array, the received data will also
+        be cupy array. In the latter case, please be aware that
+        the CUDA current device is intended one.
+        (``https://docs-cupy.chainer.org/en/stable/tutorial/basic.html#current-device``)
+
         Args:
             x (numpy.array): An array to apply allreduce operation.
 
@@ -458,6 +482,11 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         If ``xs`` is ``numpy.ndarrray``, it is splitted with the first
         axis and sent to different processes. For slave processes, ``xs``
         is allowed to be any value (will be ignored).
+
+        If ``scatter()`` is invoked with cupy array in the root process,
+        this method tries to allocate cupy array to receive data.
+        Please be aware that the CUDA current device is intended one.
+        (``https://docs-cupy.chainer.org/en/stable/tutorial/basic.html#current-device``)
 
         Args:
             xs (tuple of numpy.array or numpy.array): Arrays to be scattered.
