@@ -1,35 +1,50 @@
+import enum
+
 import chainer
 import numpy
 
 
-def _is_valid_type(element):
+class _DataType(enum.IntEnum):
+    FLOAT32_FLOAT32 = 1
+    FLOAT32_INT32 = 2
+    FLOAT32 = 3
+    OTHER = 4
+    INVALID = 5
+
+
+def _get_data_type(element):
     if isinstance(element, tuple) and len(element) == 2 \
             and hasattr(element[0], 'dtype') \
             and element[0].dtype == numpy.float32 \
             and hasattr(element[1], 'dtype') \
             and element[1].dtype == numpy.float32:
-        return True
+        return _DataType.FLOAT32_FLOAT32
+    elif isinstance(element, tuple) and len(element) == 2 \
+            and hasattr(element[0], 'dtype') \
+            and element[0].dtype == numpy.float32 \
+            and hasattr(element[1], 'dtype') \
+            and element[1].dtype == numpy.int32:
+        return _DataType.FLOAT32_INT32
     elif hasattr(element, 'dtype') and element.dtype == numpy.float32:
-        return True
-    return False
+        return _DataType.FLOAT32
+    else:
+        return _DataType.OTHER
 
 
-def _build_ctrl_msg(stop, is_valid_data_type, is_paired_dataset, is_new_epoch,
-                    current_position):
-    ctrl_msg = numpy.ones((5,)) * [int(stop), int(is_valid_data_type),
-                                   int(is_paired_dataset), int(is_new_epoch),
-                                   int(current_position)]
-    return ctrl_msg.astype(numpy.float32)
+def _build_ctrl_msg(stop, data_type, is_new_epoch, current_position):
+    ctrl_msg = numpy.ones((4,)) \
+        * [int(stop), int(data_type), int(is_new_epoch), int(current_position)]
+    ctrl_msg = ctrl_msg.astype(numpy.int32)
+    return ctrl_msg.view(numpy.float32)
 
 
 def _parse_ctrl_msg(msg):
+    msg = msg.view(numpy.int32)
     stop = bool(msg[0])
-    is_valid_data_type = bool(msg[1])
-    is_paired_dataset = bool(msg[2])
-    is_new_epoch = bool(msg[3])
-    current_position = int(msg[4])
-    return stop, is_valid_data_type, is_paired_dataset, is_new_epoch,\
-        current_position
+    data_type = _DataType(msg[1])
+    is_new_epoch = bool(msg[2])
+    current_position = int(msg[3])
+    return stop, data_type, is_new_epoch, current_position
 
 
 class _MultiNodeIteratorMaster(chainer.dataset.iterator.Iterator):
@@ -60,40 +75,42 @@ class _MultiNodeIteratorMaster(chainer.dataset.iterator.Iterator):
         try:
             batch = self.actual_iterator.__next__()
             first_elem = batch[0]
-            is_valid_data_type = _is_valid_type(first_elem)
-            is_paired_dataset = isinstance(batch, list) \
-                and isinstance(first_elem, tuple) and len(first_elem) == 2
+            data_type = _get_data_type(first_elem)
             stop = False
         except StopIteration:
+            data_type = _DataType.INVALID
             stop = True
-            is_valid_data_type = False
-            is_paired_dataset = False
 
         is_new_epoch = self.actual_iterator.is_new_epoch
-        ctrl_msg = _build_ctrl_msg(stop, is_valid_data_type, is_paired_dataset,
-                                   is_new_epoch,
+        ctrl_msg = _build_ctrl_msg(stop, data_type, is_new_epoch,
                                    self.actual_iterator.current_position)
         self.communicator.bcast(ctrl_msg, root=self.rank_master)
 
         if stop:
             raise StopIteration
-        elif not is_valid_data_type:
-            raise TypeError('Multi node iterator supports numpy.float32 '
-                            'or tuple of numpy.float32 as the data type '
-                            'of the batch element only.')
 
-        if is_paired_dataset:
+        if data_type == _DataType.FLOAT32_FLOAT32:
             _xs, _ys = zip(*batch)
             xs = numpy.asarray(_xs, dtype=numpy.float32)
             ys = numpy.asarray(_ys, dtype=numpy.float32)
             self.communicator.bcast(xs, root=self.rank_master)
             self.communicator.bcast(ys, root=self.rank_master)
             return batch
-        else:
+        elif data_type == _DataType.FLOAT32_INT32:
+            _xs, _ys = zip(*batch)
+            xs = numpy.asarray(_xs, dtype=numpy.float32)
+            ys = numpy.asarray(_ys, dtype=numpy.int32).view(numpy.float32)
+            self.communicator.bcast(xs, root=self.rank_master)
+            self.communicator.bcast(ys, root=self.rank_master)
+            return batch
+        elif data_type == _DataType.FLOAT32:
             if isinstance(batch, list):
                 batch = numpy.array(batch)
             batch = self.communicator.bcast(batch, root=self.rank_master)
             return batch.tolist()
+        elif data_type == _DataType.OTHER:
+            batch = self.communicator.bcast_obj(batch, root=self.rank_master)
+            return batch
 
     next = __next__
 
@@ -145,7 +162,7 @@ class _MultiNodeIteratorSlave(chainer.dataset.iterator.Iterator):
     def __next__(self):
         # Check if master iterator received stop signal.
         ctrl_msg = self.communicator.bcast(None, root=self.rank_master)
-        stop, is_valid_data_type, is_paired_dataset, self.is_new_epoch, \
+        stop, data_type, self.is_new_epoch, \
             self.current_position = _parse_ctrl_msg(ctrl_msg)
 
         if self.is_new_epoch:
@@ -153,17 +170,21 @@ class _MultiNodeIteratorSlave(chainer.dataset.iterator.Iterator):
 
         if stop:
             raise StopIteration
-        elif not is_valid_data_type:
-            raise TypeError('Multi node iterator supports numpy.float32 '
-                            'or tuple of numpy.float32 as the data type '
-                            'of the batch element only.')
-        if is_paired_dataset:
+
+        if data_type == _DataType.FLOAT32_FLOAT32:
             xs = self.communicator.bcast(None, root=self.rank_master)
             ys = self.communicator.bcast(None, root=self.rank_master)
             return list(zip(xs, ys.astype(numpy.int32)))
-        else:
+        elif data_type == _DataType.FLOAT32_INT32:
+            xs = self.communicator.bcast(None, root=self.rank_master)
+            ys = self.communicator.bcast(None, root=self.rank_master)
+            return list(zip(xs, ys.view(numpy.int32)))
+        elif data_type == _DataType.FLOAT32:
             batch = self.communicator.bcast(None, root=self.rank_master)
             return batch.tolist()
+        elif data_type == _DataType.OTHER:
+            batch = self.communicator.bcast_obj(None, root=self.rank_master)
+            return batch
 
     @property
     def epoch_detail(self):
