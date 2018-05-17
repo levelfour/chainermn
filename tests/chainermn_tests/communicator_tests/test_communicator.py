@@ -402,6 +402,7 @@ class TestDifferentDtype(unittest.TestCase):
         xs = [chainer.cuda.to_gpu(x, device=self.device) for x in xs]
         self.check_scatter(xs)
 
+
 class TestNonContiguousArray(unittest.TestCase):
 
     def setup(self, gpu):
