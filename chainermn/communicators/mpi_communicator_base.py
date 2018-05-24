@@ -12,8 +12,6 @@ from chainermn.communicators import communicator_base
 
 
 _dtype_mpi_type = {
-    numpy.dtype(numpy.int8): mpi4py.MPI.INT8_T,
-    numpy.dtype(numpy.int16): mpi4py.MPI.INT16_T,
     numpy.dtype(numpy.int32): mpi4py.MPI.INT32_T,
     numpy.dtype(numpy.int64): mpi4py.MPI.INT64_T,
     numpy.dtype(numpy.float32): mpi4py.MPI.FLOAT,
@@ -186,7 +184,7 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         rlens = [numpy.prod(s) for s in shapes]
         rbuf = xp.empty([sum(rlens)], dtype=msgtype.dtype)
         if xp is not numpy:
-            sbuf = _memory_utility.array_to_buffer_object(sbuf)[0]
+            sbuf = _memory_utility.get_device_memory_pointer(sbuf)
             chainer.cuda.Stream.null.synchronize()
         self.mpi_comm.Alltoallv(
             [sbuf, (slens, _cnt_to_dsp(slens)), _get_mpi_type(send_msgtype)],
@@ -233,10 +231,14 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         for array in data:
             if chainer.cuda.get_array_module(array) is not numpy:
                 chainer.cuda.Stream.null.synchronize()
+                array = (_memory_utility.get_device_memory_pointer(array),
+                       _get_mpi_type(msgtype))
 
-            buf = _memory_utility.array_to_buffer_object(array)
+            else:
+                array = numpy.ascontiguousarray(array)
+
             """We use Ssend() for the same reason as using ssend()."""
-            self.mpi_comm.Ssend(buf, dest=dest, tag=tag)
+            self.mpi_comm.Ssend(array, dest=dest, tag=tag)
 
     def recv(self, source, tag):
         """A primitive of inter-process receiver.
@@ -317,7 +319,8 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
 
             msgtype = self.mpi_comm.bcast(msgtype, root)
             shape = msgtype.shapes[0]
-            buf = _memory_utility.array_to_buffer_object(x)
+            buf = _memory_utility.array_to_buffer_object(
+                x, _get_mpi_type(msgtype))
             self.mpi_comm.Bcast(buf, root)
             return x
         else:
@@ -372,7 +375,8 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
                 assert len(msgtype.shapes) == 1
 
             xp = chainer.cuda.get_array_module(x)
-            sbuf = _memory_utility.array_to_buffer_object(x)
+            sbuf = _memory_utility.array_to_buffer_object(
+                x, _get_mpi_type(msgtype))
             shapes = [mty.shapes[0] for mty in msgtypes]
             rlens = [numpy.prod(s) for s in shapes]
             rbuf = xp.empty([sum(rlens)], dtype=msgtype.dtype)
@@ -391,7 +395,8 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
             return tuple(ys)
 
         else:
-            sbuf = _memory_utility.array_to_buffer_object(x)
+            sbuf = _memory_utility.array_to_buffer_object(
+                x, _get_mpi_type(msgtype))
             self.mpi_comm.Gatherv(sbuf, None, root)
             return None
 
@@ -415,7 +420,8 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         # Collective communication.
         xp = chainer.cuda.get_array_module(x)
         shapes = [msgtype.shapes[0] for msgtype in msgtypes]
-        sbuf = _memory_utility.array_to_buffer_object(x)
+        sbuf = _memory_utility.array_to_buffer_object(
+            x, _get_mpi_type(msgtype))
         rlens = [numpy.prod(s) for s in shapes]
         rbuf = xp.empty([sum(rlens)], dtype=msgtype.dtype)
         if xp is not numpy:
@@ -469,7 +475,8 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         # TODO(kuenishi): do we check all messages have same shape and dims?
 
         # Source buffer
-        sbuf = _memory_utility.array_to_buffer_object(x)
+        sbuf = _memory_utility.array_to_buffer_object(
+            x, _get_mpi_type(msgtype))
         # Destination buffer
         dbuf = xp.empty([numpy.prod(msgtype.shapes[0])], dtype=msgtype.dtype)
         self.mpi_comm.Allreduce(
@@ -559,7 +566,7 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
 
             # Collective communication.
             slens = [numpy.prod(s) for s in shapes]
-            sbuf = _memory_utility.array_to_buffer_object(xs)[0]
+            sbuf = _memory_utility.get_device_memory_pointer(xs)
             rbuf = xp.empty([numpy.prod(shape)], dtype=msgtype.dtype)
             if xp is not numpy:
                 chainer.cuda.Stream.null.synchronize()
