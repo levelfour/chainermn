@@ -168,7 +168,6 @@ def allgather(comm, x):
     Args:
         comm: ChainerMN communicator.
         x (chainer.Variables): Variables to send.
-        device (int): Target device specifier.
 
     Returns:
         ys (list of chainer.Variables): Received variables.

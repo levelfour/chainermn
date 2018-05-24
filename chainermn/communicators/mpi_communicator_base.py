@@ -105,17 +105,17 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         invoke ``alltoall()``. This method relies on mpi4py fast communication
         optimized for numpy arrays, as well as ``send()`` and ``recv()``.
 
-        If ``xs`` is numpy array, the received data will also be allocated
-        as numpy array. If ``xs`` is cupy array, the received data will also
-        be cupy array. In the latter case, please be aware that
-        the CUDA current device is intended one.
+        If ``xs`` is numpy array, the returned array will also be allocated
+        as numpy array. Additionally, when ``xs`` is cupy array, the returned
+        array will be placed at current device
         (``https://docs-cupy.chainer.org/en/stable/tutorial/basic.html#current-device``)
+        regardless of which device the argument is placed at remote nodes.
 
         Args:
-            xs (tuple of numpy.ndarray)
+            xs (tuple of numpy/cupy array)
 
         Returns:
-            ys (tuple of numpy.ndarray):
+            ys (tuple of numpy/cupy array):
                 Received arrays. The length of tuple equals to
                 the communicator size.
         """
@@ -222,14 +222,18 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         chainer.Variable objects. Please be sure.
 
         If the corresponding ``send()`` is invoked with cupy array,
-        this method tries to allocate cupy array to receive data.
-        Please be aware that the CUDA current device is intended one.
+        the returned array will be placed at current device
         (``https://docs-cupy.chainer.org/en/stable/tutorial/basic.html#current-device``)
+        regardless of which device the argument is placed at remote nodes.
 
         Args:
             source (int): Target process specifier.
             tag (int): Message ID (MPI feature).
 
+        Returns:
+            data (tuple of numpy/cupy array or numpy/cupy array):
+                Received data. If ``send()`` is invoked with tuple data,
+                it is also tuple. Otherwise, it is a vanilla numpy/cupy array.
         """
 
         chainer.utils.experimental(
@@ -266,16 +270,16 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         optimized for numpy arrays, as well as ``send()`` and ``recv()``.
 
         If ``bcast()`` is invoked with cupy array in the root process,
-        this method tries to allocate cupy array to receive data.
-        Please be aware that the CUDA current device is intended one.
+        the returned array will be placed at current device
         (``https://docs-cupy.chainer.org/en/stable/tutorial/basic.html#current-device``)
+        regardless of which device the argument is placed at remote nodes.
 
         Args:
-            x (numpy.array): Array to be broadcasted.
+            x (numpy/cupy array): Array to be broadcasted.
             root (int): Rank of root process.
 
         Returns:
-            ys (tuple of numpy.ndarray): Received arrays.
+            ys (tuple of numpy/cupy array): Received arrays.
         """
         chainer.utils.experimental(
             'chainermn.communicators.MpiCommunicatorBase.bcast')
@@ -314,17 +318,17 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         optimized for numpy arrays, as well as ``send()`` and ``recv()``.
 
         If ``x`` is numpy array, the received data will also be allocated
-        as numpy array. If ``x`` is cupy array, the received data will also
-        be cupy array. In the latter case, please be aware that
-        the CUDA current device is intended one.
+        as numpy array. Additionally, when ``x`` is cupy array, the returned
+        array will be placed at current device
         (``https://docs-cupy.chainer.org/en/stable/tutorial/basic.html#current-device``)
+        regardless of which device the argument is placed at remote nodes.
 
         Args:
-            x (numpy.array): Array to be gathered.
+            x (numpy/cupy array): Array to be gathered.
             root (int): Rank of root process.
 
         Returns:
-            ys (tuple of numpy.ndarray):
+            ys (tuple of numpy/cupy array):
                 Received arrays. ``None`` for non-root processes.
         """
         chainer.utils.experimental(
@@ -418,16 +422,16 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         over all processes, and cannot handle tuple data.
 
         If ``x`` is numpy array, the received data will also be allocated
-        as numpy array. If ``x`` is cupy array, the received data will also
-        be cupy array. In the latter case, please be aware that
-        the CUDA current device is intended one.
+        as numpy array. Additionally, when ``x`` is cupy array, the returned
+        array will be placed at current device
         (``https://docs-cupy.chainer.org/en/stable/tutorial/basic.html#current-device``)
+        regardless of which device the argument is placed at remote nodes.
 
         Args:
-            x (numpy.array): An array to apply allreduce operation.
+            x (numpy/cupy array): An array to apply allreduce operation.
 
         Returns:
-            ys (numpy.ndarray): An array that allreduce (currently SUM only)
+            ys (numpy/cupy array): An array that allreduce (currently SUM only)
                 has been applied.
 
         """
@@ -485,16 +489,16 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         is allowed to be any value (will be ignored).
 
         If ``scatter()`` is invoked with cupy array in the root process,
-        this method tries to allocate cupy array to receive data.
-        Please be aware that the CUDA current device is intended one.
+        the returned array will be placed at current device
         (``https://docs-cupy.chainer.org/en/stable/tutorial/basic.html#current-device``)
+        regardless of which device the argument is placed at remote nodes.
 
         Args:
-            xs (tuple of numpy.array or numpy.array): Arrays to be scattered.
+            xs (tuple of numpy/cupy array): Arrays to be scattered.
             root (int): Rank of root process.
 
         Returns:
-            ys (numpy.ndarray): Received arrays.
+            ys (numpy/cupy array): Received arrays.
         """
         chainer.utils.experimental(
             'chainermn.communicators.CommunicatorBase.scatter')
