@@ -232,7 +232,7 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
             if chainer.cuda.get_array_module(array) is not numpy:
                 chainer.cuda.Stream.null.synchronize()
                 array = (_memory_utility.get_device_memory_pointer(array),
-                       _get_mpi_type(msgtype))
+                         _get_mpi_type(msgtype))
 
             else:
                 array = numpy.ascontiguousarray(array)
