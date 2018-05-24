@@ -12,10 +12,11 @@ from chainermn.communicators import communicator_base
 
 
 _dtype_mpi_type = {
-    numpy.dtype(numpy.int32): mpi4py.MPI.INT32_T,
-    numpy.dtype(numpy.int64): mpi4py.MPI.INT64_T,
-    numpy.dtype(numpy.float32): mpi4py.MPI.FLOAT,
-    numpy.dtype(numpy.float64): mpi4py.MPI.DOUBLE,
+    # see the definition of mpi4py.MPI._typedict (in mpi4py/MPI/typemap.pxi)
+    numpy.dtype(numpy.int32): mpi4py.MPI._typedict['i'],
+    numpy.dtype(numpy.int64): mpi4py.MPI._typedict['l'],
+    numpy.dtype(numpy.float32): mpi4py.MPI._typedict['f'],
+    numpy.dtype(numpy.float64): mpi4py.MPI._typedict['d'],
 }
 
 
