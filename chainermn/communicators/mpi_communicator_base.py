@@ -574,7 +574,7 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
             msgtypes = self.mpi_comm.scatter(None, root)
             xp = msgtypes.get_array_module()
             shape = msgtypes.shapes[0]
-            rbuf = xp.empty([numpy.prod(shape)], dtype=msgtype.dtype)
+            rbuf = xp.empty([numpy.prod(shape)], dtype=msgtypes.dtype)
             self.mpi_comm.Scatterv(
                 None,
                 _memory_utility.get_device_memory_pointer(rbuf),
