@@ -263,12 +263,6 @@ class TestPureNcclCommunicator(unittest.TestCase):
             PureNcclCommunicator(self.mpi_comm, allreduce_grad_dtype=np.int32)
 
 
-@chainer.testing.parameterize(
-    {'dtype': np.int32},
-    {'dtype': np.int64},
-    {'dtype': np.float32},
-    {'dtype': np.float64},
-)
 class TestDifferentDtype(unittest.TestCase):
 
     def setup(self, gpu):
@@ -283,6 +277,11 @@ class TestDifferentDtype(unittest.TestCase):
         if self.communicator.size != 2:
             pytest.skip('This test is for two processes')
 
+        # dtypes to be tested
+        # DO NOT USE chainer.testing.parameterize
+        # (because running order of generated test cases is not unique)
+        self.dtypes = [np.int32, np.int64, np.float32, np.float64]
+
     def check_alltoall(self, xs):
         x = xs[self.communicator.rank]
         ys = self.communicator.alltoall(
@@ -292,21 +291,23 @@ class TestDifferentDtype(unittest.TestCase):
 
     def test_alltoall_cpu(self):
         self.setup(False)
-        xs = np.arange(4 * self.communicator.size) \
-            .reshape(self.communicator.size, 4) \
-            .astype(self.dtype)
-        xs = np.split(xs, self.communicator.size)
-        self.check_alltoall(xs)
+        for dtype in self.dtypes:
+            xs = np.arange(4 * self.communicator.size) \
+                .reshape(self.communicator.size, 4) \
+                .astype(dtype)
+            xs = np.split(xs, self.communicator.size)
+            self.check_alltoall(xs)
 
     @chainer.testing.attr.gpu
     def test_alltoall_gpu(self):
         self.setup(True)
-        xs = np.arange(4 * self.communicator.size) \
-            .reshape(self.communicator.size, 4) \
-            .astype(self.dtype)
-        xs = np.split(xs, self.communicator.size)
-        xs = [chainer.cuda.to_gpu(x, device=self.device) for x in xs]
-        self.check_alltoall(xs)
+        for dtype in self.dtypes:
+            xs = np.arange(4 * self.communicator.size) \
+                .reshape(self.communicator.size, 4) \
+                .astype(dtype)
+            xs = np.split(xs, self.communicator.size)
+            xs = [chainer.cuda.to_gpu(x, device=self.device) for x in xs]
+            self.check_alltoall(xs)
 
     def check_allgather(self, xs):
         x = xs[self.communicator.rank]
@@ -316,21 +317,23 @@ class TestDifferentDtype(unittest.TestCase):
 
     def test_allgather_cpu(self):
         self.setup(False)
-        xs = np.arange(4 * self.communicator.size) \
-            .reshape(self.communicator.size, 4) \
-            .astype(self.dtype)
-        xs = np.split(xs, self.communicator.size)
-        self.check_allgather(xs)
+        for dtype in self.dtypes:
+            xs = np.arange(4 * self.communicator.size) \
+                .reshape(self.communicator.size, 4) \
+                .astype(dtype)
+            xs = np.split(xs, self.communicator.size)
+            self.check_allgather(xs)
 
     @chainer.testing.attr.gpu
     def test_allgather_gpu(self):
         self.setup(True)
-        xs = np.arange(4 * self.communicator.size) \
-            .reshape(self.communicator.size, 4) \
-            .astype(self.dtype)
-        xs = np.split(xs, self.communicator.size)
-        xs = [chainer.cuda.to_gpu(x, device=self.device) for x in xs]
-        self.check_allgather(xs)
+        for dtype in self.dtypes:
+            xs = np.arange(4 * self.communicator.size) \
+                .reshape(self.communicator.size, 4) \
+                .astype(dtype)
+            xs = np.split(xs, self.communicator.size)
+            xs = [chainer.cuda.to_gpu(x, device=self.device) for x in xs]
+            self.check_allgather(xs)
 
     def check_bcast(self, x):
         if self.communicator.rank == 0:
@@ -341,15 +344,17 @@ class TestDifferentDtype(unittest.TestCase):
 
     def test_bcast_cpu(self):
         self.setup(False)
-        x = np.arange(4).astype(self.dtype)
-        self.check_bcast(x)
+        for dtype in self.dtypes:
+            x = np.arange(4).astype(dtype)
+            self.check_bcast(x)
 
     @chainer.testing.attr.gpu
     def test_bcast_gpu(self):
         self.setup(True)
-        x = np.arange(4).astype(self.dtype)
-        x = chainer.cuda.to_gpu(x, device=self.device)
-        self.check_bcast(x)
+        for dtype in self.dtypes:
+            x = np.arange(4).astype(dtype)
+            x = chainer.cuda.to_gpu(x, device=self.device)
+            self.check_bcast(x)
 
     def check_gather(self, xs):
         x = xs[self.communicator.rank]
@@ -360,21 +365,23 @@ class TestDifferentDtype(unittest.TestCase):
 
     def test_gather_cpu(self):
         self.setup(False)
-        xs = np.arange(4 * self.communicator.size) \
-            .reshape(self.communicator.size, 4) \
-            .astype(self.dtype)
-        xs = np.split(xs, self.communicator.size)
-        self.check_gather(xs)
+        for dtype in self.dtypes:
+            xs = np.arange(4 * self.communicator.size) \
+                .reshape(self.communicator.size, 4) \
+                .astype(dtype)
+            xs = np.split(xs, self.communicator.size)
+            self.check_gather(xs)
 
     @chainer.testing.attr.gpu
     def test_gather_gpu(self):
         self.setup(True)
-        xs = np.arange(4 * self.communicator.size) \
-            .reshape(self.communicator.size, 4) \
-            .astype(self.dtype)
-        xs = np.split(xs, self.communicator.size)
-        xs = [chainer.cuda.to_gpu(x, device=self.device) for x in xs]
-        self.check_gather(xs)
+        for dtype in self.dtypes:
+            xs = np.arange(4 * self.communicator.size) \
+                .reshape(self.communicator.size, 4) \
+                .astype(dtype)
+            xs = np.split(xs, self.communicator.size)
+            xs = [chainer.cuda.to_gpu(x, device=self.device) for x in xs]
+            self.check_gather(xs)
 
     def check_scatter(self, xs):
         x = xs[self.communicator.rank]
@@ -386,21 +393,23 @@ class TestDifferentDtype(unittest.TestCase):
 
     def test_scatter_cpu(self):
         self.setup(False)
-        xs = np.arange(4 * self.communicator.size) \
-            .reshape(self.communicator.size, 4) \
-            .astype(self.dtype)
-        xs = np.split(xs, self.communicator.size)
-        self.check_scatter(xs)
+        for dtype in self.dtypes:
+            xs = np.arange(4 * self.communicator.size) \
+                .reshape(self.communicator.size, 4) \
+                .astype(dtype)
+            xs = np.split(xs, self.communicator.size)
+            self.check_scatter(xs)
 
     @chainer.testing.attr.gpu
     def test_scatter_gpu(self):
         self.setup(True)
-        xs = np.arange(4 * self.communicator.size) \
-            .reshape(self.communicator.size, 4) \
-            .astype(self.dtype)
-        xs = np.split(xs, self.communicator.size)
-        xs = [chainer.cuda.to_gpu(x, device=self.device) for x in xs]
-        self.check_scatter(xs)
+        for dtype in self.dtypes:
+            xs = np.arange(4 * self.communicator.size) \
+                .reshape(self.communicator.size, 4) \
+                .astype(dtype)
+            xs = np.split(xs, self.communicator.size)
+            xs = [chainer.cuda.to_gpu(x, device=self.device) for x in xs]
+            self.check_scatter(xs)
 
 
 class TestNonContiguousArray(unittest.TestCase):
