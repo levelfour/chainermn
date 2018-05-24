@@ -184,7 +184,7 @@ class MpiCommunicatorBase(communicator_base.CommunicatorBase):
         sbuf = xp.hstack([x.reshape(-1) for x in xs])
         shapes = [msgtype.shapes[0] for msgtype in msgtypes]
         rlens = [numpy.prod(s) for s in shapes]
-        rbuf = numpy.empty([sum(rlens)], dtype=msgtype.dtype)
+        rbuf = xp.empty([sum(rlens)], dtype=msgtype.dtype)
         if xp is not numpy:
             sbuf = _memory_utility.array_to_buffer_object(sbuf)[0]
             chainer.cuda.Stream.null.synchronize()
