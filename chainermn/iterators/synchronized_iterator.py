@@ -1,11 +1,12 @@
+import chainer
 import numpy
 
 
 class _SynchronizedIterator(object):
 
     def __init__(self, actual_iterator, communicator):
-        if not hasattr(actual_iterator, 'set_random_state'):
-            raise ValueError('actual_iterator must have set_random_state()')
+        if not hasattr(actual_iterator, 'order_sampler'):
+            raise ValueError('actual_iterator must have order_sampler')
         else:
             super(_SynchronizedIterator, self).__setattr__(
                 'actual_iterator', actual_iterator)
@@ -20,7 +21,9 @@ class _SynchronizedIterator(object):
 
         # Random number generator for iterator.
         rng = numpy.random.RandomState(seed)
-        self.actual_iterator.set_random_state(rng)
+        self.actual_iterator.order_sampler = \
+            chainer.iterators.ShuffleOrderSampler(rng)
+        self.actual_iterator.reset()
 
     def __getattr__(self, attr_name):
         return getattr(self.actual_iterator, attr_name)
