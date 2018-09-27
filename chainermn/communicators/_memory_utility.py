@@ -1,6 +1,5 @@
 import ctypes
 
-import cffi
 import mpi4py.MPI
 import numpy as np
 
@@ -20,20 +19,20 @@ class HostPinnedMemory(object):
                                "Cupy is not available.")
         self.size = 0
         self.memory = None
-        self.cptr = None
-        self.ffi = cffi.FFI()
 
     def assign(self, size):
         if size > self.size:
             self.size = size
             self.memory = cp.cuda.alloc_pinned_memory(size)
-            self.cptr = self.ffi.cast('void *', self.memory.ptr)
 
     def ptr(self, offset=0):
         return ctypes.c_void_p(self.memory.ptr + offset)
 
     def buffer(self, size):
-        return self.ffi.buffer(self.cptr, size)
+        return ctypes.cast(
+            self.memory.ptr,
+            ctypes.POINTER(ctypes.c_ubyte * size)
+        ).contents
 
     def array(self, count, offset=0, dtype=np.float32):
         if dtype is None:
@@ -50,8 +49,6 @@ class DeviceMemory(object):
                                "Cupy is not available.")
         self.size = 0
         self.memory = None
-        self.cptr = None
-        self.ffi = cffi.FFI()
 
     def assign(self, size):
         if size > self.size:
@@ -76,7 +73,10 @@ class DeviceMemory(object):
         return self.memory.ptr
 
     def buffer(self, size):
-        return self.ffi.buffer(self.ffi.cast('void *', self.memory.ptr), size)
+        return ctypes.cast(
+            self.memory.ptr,
+            ctypes.POINTER(ctypes.c_ubyte * size)
+        ).contents
 
     def array(self, shape, offset=0, dtype=np.float32):
         if dtype is None:
@@ -84,7 +84,12 @@ class DeviceMemory(object):
         return cp.ndarray(shape, memptr=self.memory + offset, dtype=dtype)
 
 
-def extract_params(model):
+def extract_params_set_data(model):
+    return [param for _, param in sorted(model.namedparams())
+            if param.data is not None]
+
+
+def extract_params_set_grad(model):
     return [param for _, param in sorted(model.namedparams())
             if param.grad is not None]
 
@@ -92,18 +97,18 @@ def extract_params(model):
 def pack_params(params, itemsize, attr_name, buffer, stream=None):
     offset = 0
     for param in params:
-        grad = getattr(param, attr_name)
-        size = grad.size * itemsize
-        buffer.from_device(grad, size, offset, stream)
+        v = getattr(param, attr_name)
+        size = v.size * itemsize
+        buffer.from_device(v, size, offset, stream)
         offset += size
 
 
 def unpack_params(params, itemsize, attr_name, buffer, stream=None):
     offset = 0
     for param in params:
-        grad = getattr(param, attr_name)
-        size = grad.size * itemsize
-        buffer.to_device(grad, size, offset, stream)
+        v = getattr(param, attr_name)
+        size = v.size * itemsize
+        buffer.to_device(v, size, offset, stream)
         offset += size
 
 
@@ -123,5 +128,7 @@ def get_device_memory_pointer(array):
     if xp is np:
         return array
     else:
-        ffi = cffi.FFI()
-        return ffi.buffer(ffi.cast('void *', array.data.ptr), array.nbytes)
+        return ctypes.cast(
+            array.data.ptr,
+            ctypes.POINTER(ctypes.c_ubyte * array.nbytes)
+        ).contents

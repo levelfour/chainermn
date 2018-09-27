@@ -4,19 +4,27 @@ Tips and FAQs
 
 Using MultiprocessIterator
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
-If you are using ``MultiprocessIterator`` and communication goes through InfiniBand,
-you would probably face crashing problems.
-This is because ``MultiprocessIterator`` creates child processes by the ``fork`` system call,
-which has `incompatibilities with the design of MPI and InfiniBand <https://www.open-mpi.org/faq/?category=tuning#fork-warning>`_.
-To cope with this issue, we can use ``multiprocessing.set_start_method``
-to change the way to start child processes::
+
+If you are using ``MultiprocessIterator`` and communication goes
+through InfiniBand, you would probably face crashing problems.  This
+is because ``MultiprocessIterator`` creates child processes by the
+``fork`` system call, which has `incompatibilities with the design of MPI and InfiniBand
+<https://www.open-mpi.org/faq/?category=tuning#fork-warning>`_.  To
+cope with this issue, use ``multiprocessing.set_start_method`` to
+start child processes, with a process explicitly forked right after, **before
+communicator is created** as follows::
 
   multiprocessing.set_start_method('forkserver')
+  p = multiprocessing.Process(target=lambda *x: x, args=())
+  p.start()
+  p.join()
 
-Both ``forkserver`` mode and ``spawn`` mode should work.
-Please also refer to our ImageNet example, where ``MultiprocessIterator`` is used.
-Unfortunately, ``multiprocessing.set_start_method`` is only available in Python 3.4+.
-Therefore you need those recent Python versions to use ``MultiprocessIterator``.
+  communicator = chainermn.create_communicator(...)
+
+Either ``forkserver`` mode or ``spawn`` mode should work.  See our
+ImageNet example script for working sample code of
+``MultiprocessIterator`` and ``forkserver``.  Unfortunately,
+``multiprocessing.set_start_method`` is only available in Python 3.4+.
 
 
 Using Your Own Evaluator
@@ -40,9 +48,9 @@ Using FP16
 ~~~~~~~~~~
 FP16 (16-bit half precision floating point values) is supported in ``pure_nccl`` of a ChainerMN communicator.
 
+.. _faq-global-exc-hook:
 
-
-MPI processes don't exit when an error occurs in a process
+MPI process hangs after an unhandled Python exception.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
@@ -52,7 +60,7 @@ when a Python program runs on `mpi4py`, the MPI runtime often fails to detect
 the process failure, and the rest of the processes hang infinitely. It is especially problematic
 when you run your ChainerMN program on a cloud environment, in which you are charged on time basis.
 
-This tiny program demonstrates the issue.::
+This tiny program demonstrates the issue (note that it is not specific to ChainerMN).::
 
   # test.py
   def func():
@@ -67,8 +75,6 @@ This tiny program demonstrates the issue.::
     func()
 
   # mpiexec -n 2 python test.py
-
-
 
 `mpi4py` offers a solution to force all processes to abort if an uncaught exception occurs.. ::
 
@@ -91,41 +97,15 @@ you can inject the following code snippet into your script file ::
     try:
         import mpi4py.MPI
 
-        _old_hook(exctype, value, traceback)
+  $ mpiexec -n 2 -x CHAINERMN_FORCE_ABORT_ON_EXCEPTION=1 python yourscript.py ...
 
-        rank = mpi4py.MPI.COMM_WORLD.Get_rank()
-        sys.stderr.write("\n")
-        sys.stderr.write("********************************************************\n")
-        sys.stderr.write("ChainerMN: Uncaught exception was detected on rank {}. \n".format(rank))
-        sys.stderr.write("           Calling MPI_Abort() to shut down MPI processes...\n")
-        sys.stderr.write("********************************************************\n\n\n")
-        sys.stderr.flush()
+Alternatively, you can explicitly call ``chainermn.global_except_hook.add_hook()`` from your code.::
 
-    finally:
-        try:
-            import mpi4py.MPI
-            mpi4py.MPI.COMM_WORLD.Abort(1)
-        except Exception as e:
-            sys.stderr.write("Sorry, we failed to stop MPI, this MPI process may hang.\n")
-            sys.stderr.flush()
-            raise e
+  import chainermn
 
-  sys.excepthook = global_except_hook
+  chainermn.global_except_hook.add_hook()
 
-  # === end code snippet
-
-  def func():
-    "A sample function to cause the problem"
-    import mpi4py.MPI
-    mpi_comm = mpi4py.MPI.COMM_WORLD
-    if mpi_comm.rank == 0:
-        raise ValueError('failure!')
-
-    mpi4py.MPI.COMM_WORLD.Barrier()
-
-
-  if __name__ == '__main__':
-    func()
+The handler hooks uncaught exceptions and call `MPI_Abort()` to ensure that all process are terminated.
 
 You can choose any of these solutions depending on your environment and restrictions.
 

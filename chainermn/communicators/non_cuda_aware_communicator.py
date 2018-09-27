@@ -44,17 +44,18 @@ class NonCudaAwareCommunicator(mpi_communicator_base.MpiCommunicatorBase):
 
     def bcast_data(self, model):
         for _, param in sorted(model.namedparams()):
-            data = param.data
-            tmp_cpu = chainer.cuda.to_cpu(data)
-            self.mpi_comm.Bcast(tmp_cpu)
-            tmp_gpu = chainer.cuda.to_gpu(tmp_cpu)
-            data[:] = tmp_gpu
+            if param.data is not None:
+                data = param.data
+                tmp_cpu = chainer.cuda.to_cpu(data)
+                self.mpi_comm.Bcast(tmp_cpu)
+                tmp_gpu = chainer.cuda.to_gpu(tmp_cpu)
+                data[:] = tmp_gpu
 
     def allreduce_grad(self, model):
         self._init_comms()
         stream = chainer.cuda.Stream.null
 
-        params = _memory_utility.extract_params(model)
+        params = _memory_utility.extract_params_set_grad(model)
         itemsize = 4
         n_elems_total = sum(param.grad.size for param in params)
         n_elems_per_node = int(math.ceil(n_elems_total / self.inter_size))

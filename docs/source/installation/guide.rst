@@ -108,16 +108,17 @@ We tested ChainerMN on all the following environments.
 * OS
   
   * Ubuntu 14.04 LTS 64bit
+  * Ubuntu 16.04 LTS 64bit
 
 * Python 2.7.13 3.5.1 3.6.1
-* Chainer 3.5.0 4.0.0 4.1.0
-* CuPy 2.5.0 4.0.0 4.1.0
+* Chainer 3.5.0 4.4.0
+* CuPy 2.5.0 4.4.0
 * MPI
 
-  * openmpi 1.6.5 1.10.3 2.1.1
+  * openmpi 1.10.7 2.1.2
 
 * MPI4py 3.0.0
-* NCCL 1.3.4 2.0.4 2.1.15
+* NCCL 2.2.13
   
 .. _chainermn-install:
 
@@ -157,7 +158,7 @@ Non-GPU environments
 
 Users who want to try ChainerMN in CPU-only environment may skip installation of CuPy.
 Non-GPU set up may not be performant as GPU-enabled set up,
-but would would be useful for testing or debugging training program
+but would be useful for testing or debugging training program
 in non-GPU environment such as laptops or CI jobs.
 
 In this case, the MPI does not have to be CUDA-aware.
