@@ -17,7 +17,7 @@ class _SynchronizedIterator(object):
             seed = numpy.random.randint(0, 2 ** 32 - 1)
         else:
             seed = None
-        seed = self.communicator.mpi_comm.bcast(seed, root=0)
+        seed = self.communicator.bcast(seed, root=0)
 
         # Random number generator for iterator.
         rng = numpy.random.RandomState(seed)
